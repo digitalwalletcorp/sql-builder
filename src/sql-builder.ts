@@ -290,6 +290,8 @@ export class SQLBuilder {
       }
     }
 
+    // 最後に余った部分を追加する
+    result += template.substring(pos.index);
     return result;
   }
 
@@ -429,7 +431,7 @@ export class SQLBuilder {
           if (Array.isArray(value)) {
             result = `(${value.map(v => typeof v === 'string' ? `'${v}'` : v).join(',')})`;
           } else {
-            result = typeof value === 'string' ? `'${value}'` : value;
+            result = typeof value === 'string' ? `'${this.escape(value)}'` : value;
           }
           return result as ExtractValueType<T>;
       }
@@ -437,5 +439,20 @@ export class SQLBuilder {
       console.warn('Error extracting value', property, entity, error);
       return undefined as ExtractValueType<T>;
     }
+  }
+
+  /**
+   * SQLインジェクション対策
+   * * シングルクォートのエスケープ
+   * * バックスラッシュのエスケープ
+   *
+   * @param {string} str
+   * @returns {string}
+   */
+  private escape(str: string): string {
+    let escapedString = str;
+    escapedString = escapedString.replace(/'/g, '\'\'');
+    escapedString = escapedString.replace(/\\/g, '\\\\');
+    return escapedString;
   }
 }

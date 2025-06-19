@@ -437,5 +437,31 @@ describe('@/server/common/sql-builder.ts', () => {
         LIMIT 50
       `));
     });
+    it('generateSQL.005.001', async () => {
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT
+          user_id
+        FROM user
+        WHERE
+          data_key = 'Name'
+          AND CAST(/*since*/'2025-06-17T15:00:00.000+00:00' AS timestamp with time zone) <= modified_at
+          AND modified_at < CAST(/*until*/'2025-06-18T15:00:00.000+00:00' AS timestamp with time zone)
+      `;
+      const bindEntity = {
+        since: '2024-12-31T15:00:00.000+00:00',
+        until: '2025-01-01T15:00:00.000+00:00'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT
+          user_id
+        FROM user
+        WHERE
+          data_key = 'Name'
+          AND CAST('2024-12-31T15:00:00.000+00:00' AS timestamp with time zone) <= modified_at
+          AND modified_at < CAST('2025-01-01T15:00:00.000+00:00' AS timestamp with time zone)
+      `));
+    });
   });
 });

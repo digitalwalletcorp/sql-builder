@@ -429,7 +429,7 @@ export class SQLBuilder {
         default:
           // string
           if (Array.isArray(value)) {
-            result = `(${value.map(v => typeof v === 'string' ? `'${v}'` : v).join(',')})`;
+            result = `(${value.map(v => typeof v === 'string' ? `'${this.escape(v)}'` : v).join(',')})`;
           } else {
             result = typeof value === 'string' ? `'${this.escape(value)}'` : value;
           }

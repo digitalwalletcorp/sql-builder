@@ -463,5 +463,74 @@ describe('@/server/common/sql-builder.ts', () => {
           AND modified_at < CAST('2025-01-01T15:00:00.000+00:00' AS timestamp with time zone)
       `));
     });
+    it('generateSQL.006.001', async () => {
+      // シングルクォートのエスケープ
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT
+          user_id
+        FROM user
+        WHERE
+          data_key = /*param*/'Name'
+      `;
+      const bindEntity = {
+        param: 'a\'b\'c'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT
+          user_id
+        FROM user
+        WHERE
+          data_key = 'a\'\'b\'\'c'
+      `));
+    });
+    it('generateSQL.006.002', async () => {
+      // バックスラッシュのエスケープ
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT
+          user_id
+        FROM user
+        WHERE
+          data_key = /*param*/'Name'
+      `;
+      const bindEntity = {
+        param: 'a\\b\\c'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT
+          user_id
+        FROM user
+        WHERE
+          data_key = 'a\\\\b\\\\c'
+      `));
+    });
+    it('generateSQL.006.003', async () => {
+      // 配列内のエスケープ
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT
+          user_id
+        FROM user
+        WHERE
+          data_key IN /*params*/('Name')
+      `;
+      const bindEntity = {
+        params: [
+          'a\'b\'c',
+          'd\\e\\f'
+        ]
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT
+          user_id
+        FROM user
+        WHERE
+          data_key IN ('a\'\'b\'\'c','d\\\\e\\\\f')
+      `));
+    });
   });
 });

@@ -38,7 +38,7 @@ You provide the `SQLBuilder` with a template string containing special, S2Dao-st
 
 This is the most common use case. The `WHERE` clause is built dynamically based on which properties exist in the `bindEntity`.
 
-##### Template:
+**Template:**
 
 ```sql
 SELECT
@@ -55,7 +55,7 @@ ORDER BY started_at DESC
 LIMIT /*limit*/100
 ```
 
-##### Code:
+**Code:**
 
 ```typescript
 import { SQLBuilder } from '@digitalwalletcorp/sql-builder';
@@ -81,7 +81,7 @@ const sql2 = builder.generateSQL(template, bindEntity2);
 console.log(sql2);
 ```
 
-##### Resulting SQL:
+**Resulting SQL:**
 
 * SQL 1 (Scenario A): The `project_name` condition is excluded, but the `status` condition is included.
 
@@ -114,7 +114,7 @@ LIMIT 100
 
 Use a `/*FOR...*/` block to iterate over an array and generate SQL for each item. This is useful for building multiple `LIKE` conditions.
 
-##### Template:
+**Template:**
 
 ```sql
 SELECT * FROM activity
@@ -122,7 +122,7 @@ WHERE 1 = 1
 /*FOR name:projectNames*/AND project_name LIKE '%' || /*name*/'default' || '%'/*END*/
 ```
 
-##### Code:
+**Code:**
 
 ```typescript
 import { SQLBuilder } from '@digitalwalletcorp/sql-builder';
@@ -138,7 +138,7 @@ const sql = builder.generateSQL(template, bindEntity);
 console.log(sql);
 ```
 
-##### Resulting SQL:
+**Resulting SQL:**
 
 ```sql
 SELECT * FROM activity
@@ -161,6 +161,68 @@ Generates a final SQL string by processing the template with the provided data e
 * `template`: The SQL template string containing S2Dao-style comments.
 * `entity`: A data object whose properties are used for evaluating conditions (`/*IF...*/`) and binding values (`/*variable*/`).
 * Returns: The generated SQL string.
+
+##### `generateParameterizedSQL(template: string, entity: Record<string, any>, bindType: 'postgres' | 'mysql' | 'oracle'): [string, Array<any> | Record<string, any>]`
+
+Generates a SQL string with placeholders for prepared statements and returns an array of bind parameters. This method is crucial for preventing SQL injection.
+
+* `template`: The SQL template string containing S2Dao-style comments.
+* `entity`: A data object whose properties are used for evaluating conditions (`/*IF...*/`) and binding values.
+* `bindType`: Specifies the database type ('postgres', 'mysql', or 'oracle') to determine the correct placeholder syntax (`$1`, `?`, or `:name`).
+
+    **Note on `bindType` Mapping:**
+    While `bindType` explicitly names PostgreSQL, MySQL, and Oracle, the generated placeholder syntax is compatible with other SQL databases as follows:
+
+    | `bindType` | Placeholder Syntax | Compatible Databases | Bind Parameter Type |
+    | :------------- | :----------------- | :------------------- | :------------------ |
+    | `postgres`     | `$1`, `$2`, ...    | **PostgreSQL** | `Array<any>`        |
+    | `mysql`        | `?`, `?`, ...      | **MySQL**, **SQLite**, **SQL Server** (for unnamed parameters) | `Array<any>`        |
+    | `oracle`       | `:name`, `:age`, ... | **Oracle**, **SQLite** (for named parameters) | `Record<string, any>` |
+
+* Returns: A tuple `[sql, bindParams]`.
+    * `sql`: The generated SQL query with appropriate placeholders.
+    * `bindParams`: An array of values (for PostgreSQL/MySQL) or an object of named values (for Oracle) to bind to the placeholders.
+
+##### Example 3: Parameterized SQL with PostgreSQL
+
+**Template:**
+
+```sql
+SELECT
+  id,
+  user_name
+FROM users
+/*BEGIN*/WHERE
+  1 = 1
+  /*IF userId != null*/AND user_id = /*userId*/0/*END*/
+  /*IF projectNames.length*/AND project_name IN /*projectNames*/('default_project')/*END*/
+/*END*/
+```
+
+**Code:**
+
+```typescript
+import { SQLBuilder } from '@digitalwalletcorp/sql-builder';
+
+const builder = new SQLBuilder();
+const template = `...`; // The SQL template from above
+
+const bindEntity = {
+  userId: 123,
+  projectNames: ['project_a', 'project_b']
+};
+
+const [sql, params] = builder.generateParameterizedSQL(template, bindEntity, 'postgres');
+console.log('SQL:', sql);
+console.log('Parameters:', params);
+```
+
+**Resulting SQL & Parameters:**
+
+```
+SQL: SELECT id, user_name FROM users WHERE 1 = 1 AND user_id = $1 AND project_name IN ($2, $3)
+Parameters: [ 123, 'project_a', 'project_b' ]
+```
 
 ## 🪄 Special Comment Syntax
 

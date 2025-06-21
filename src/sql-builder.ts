@@ -6,6 +6,27 @@ type ExtractValueType<T extends 'string' | 'array' | 'object'>
       ? any[] | undefined
       : Record<string, any> | undefined;
 
+/**
+ * PostgreSQL: $1, $2... 配列
+ * MySQL: ? 配列
+ * SQLite: ?, $name, :name 配列またはオブジェクト
+ * SQL Server: ?, `@name` 配列またはオブジェクト
+ * Oracle: :name オブジェクト
+ *
+ * 以下をサポートする
+ * ・$1, $2 (postgres)
+ * ・? (mysql) SQLite, SQL Serverもこれで代替可能
+ * ・:name (oracle) SQLiteもこれで代替可能
+ */
+type BindType = 'postgres' | 'mysql' | 'oracle';
+
+type BindParameterType<T extends 'postgres' | 'mysql' | 'oracle'>
+  = T extends 'postgres'
+    ? any[]
+    : T extends 'mysql'
+      ? any[]
+      : Record<string, any>;
+
 interface TagContext {
   type: TagType;
   match: string;
@@ -88,6 +109,48 @@ export class SQLBuilder {
     const pos: SharedIndex = { index: 0 };
     const result = this.parse(pos, template, entity, tagContexts);
     return result;
+  }
+
+  /**
+   * 指定したテンプレートにエンティティの値をバインド可能なプレースホルダー付きSQLを生成し、
+   * バインドパラメータと共にタプル型で返却する
+   *
+   * @param {string} template
+   * @param {Record<string, any>} entity
+   * @param {BindType} bindType
+   * @returns {[string, BindParameterType<T>]}
+   */
+  public generateParameterizedSQL<T extends BindType>(template: string, entity: Record<string, any>, bindType: T): [string, BindParameterType<T>] {
+
+    let bindParams: BindParameterType<T>;
+    switch (bindType) {
+      case 'postgres':
+      case 'mysql':
+        bindParams = [] as unknown as BindParameterType<T>;
+        break;
+      case 'oracle':
+        bindParams = {} as BindParameterType<T>;
+        break;
+      default:
+        throw new Error(`Unsupported bind type: ${bindType}`);
+    }
+
+    /**
+     * 「\/* *\/」で囲まれたすべての箇所を抽出
+     */
+    const allMatchers = template.match(this.REGEX_TAG_PATTERN);
+    if (!allMatchers) {
+      return [template, bindParams];
+    }
+
+    const tagContexts = this.createTagContexts(template);
+    const pos: SharedIndex = { index: 0 };
+    const result = this.parse(pos, template, entity, tagContexts, {
+      bindType: bindType,
+      bindIndex: 1,
+      bindParams: bindParams
+    });
+    return [result, bindParams];
   }
 
   /**
@@ -218,9 +281,17 @@ export class SQLBuilder {
    * @param {string} template
    * @param {Record<string, any>} entity
    * @param {TagContext[]} tagContexts
+   * @param {*} [options]
+   *   ├ bindType BindType
+   *   ├ bindIndex number
+   *   ├ bindParams BindParameterType<T>
    * @returns {string}
    */
-  private parse(pos: SharedIndex, template: string, entity: Record<string, any>, tagContexts: TagContext[]): string {
+  private parse<T extends BindType>(pos: SharedIndex, template: string, entity: Record<string, any>, tagContexts: TagContext[], options?: {
+    bindType: T,
+    bindIndex: number,
+    bindParams: BindParameterType<T>
+  }): string {
     let result = '';
     for (const tagContext of tagContexts) {
       switch (tagContext.type) {
@@ -228,7 +299,7 @@ export class SQLBuilder {
           result += template.substring(pos.index, tagContext.startIndex);
           pos.index = tagContext.endIndex;
           // BEGINのときは無条件にsubに対して再帰呼び出し
-          result += this.parse(pos, template, entity, tagContext.sub);
+          result += this.parse(pos, template, entity, tagContext.sub, options);
           break;
         }
         case 'IF': {
@@ -237,7 +308,7 @@ export class SQLBuilder {
           if (this.evaluateCondition(tagContext.contents, entity)) {
             // IF条件が成立する場合はsubに対して再帰呼び出し
             tagContext.status = 10;
-            result += this.parse(pos, template, entity, tagContext.sub);
+            result += this.parse(pos, template, entity, tagContext.sub, options);
           } else {
             // IF条件が成立しない場合は再帰呼び出しせず、subのENDタグのendIndexをposに設定
             const endTagContext = tagContext.sub[tagContext.sub.length - 1];
@@ -255,7 +326,7 @@ export class SQLBuilder {
             for (const value of array) {
               // 再帰呼び出しによりposが進むので、ループのたびにposを戻す必要がある
               pos.index = tagContext.endIndex;
-              result += this.parse(pos, template, { [bindName]: value }, tagContext.sub);
+              result += this.parse(pos, template, { [bindName]: value }, tagContext.sub, options);
               // FORループするときは各行で改行する
               result += '\n';
             }
@@ -282,8 +353,61 @@ export class SQLBuilder {
         case 'BIND': {
           result += template.substring(pos.index, tagContext.startIndex);
           pos.index = tagContext.endIndex;
-          const value = this.extractValue(tagContext.contents, entity);
-          result += value == null ? '' : String(value);
+          const value = this.getProperty(entity, tagContext.contents);
+          switch (options?.bindType) {
+            case 'postgres': {
+              // PostgreSQL形式の場合、$Nでバインドパラメータを展開
+              if (Array.isArray(value)) {
+                const placeholders: string[] = [];
+                for (const item of value) {
+                  placeholders.push(`$${options.bindIndex++}`);
+                  (options.bindParams as any[]).push(item);
+                }
+                result += `(${placeholders.join(',')})`; // IN ($1,$2,$3)
+              } else {
+                result += `$${options.bindIndex++}`;
+                (options.bindParams as any[]).push(value);
+              }
+              break;
+            }
+            case 'mysql': {
+              // MySQL形式の場合、?でバインドパラメータを展開
+              if (Array.isArray(value)) {
+                const placeholders: string[] = [];
+                for (const item of value) {
+                  placeholders.push('?');
+                  (options.bindParams as any[]).push(item);
+                }
+                result += `(${placeholders.join(',')})`; // IN (?,?,?)
+              } else {
+                result += '?';
+                (options.bindParams as any[]).push(value);
+              }
+              break;
+            }
+            case 'oracle': {
+              // Oracle形式の場合、名前付きバインドでバインドパラメータを展開
+              if (Array.isArray(value)) {
+                const placeholders: string[] = [];
+                for (let i = 0; i < value.length; i++) {
+                  // 名前付きバインドで配列の場合は名前が重複する可能性があるので枝番を付与
+                  const paramName = `${tagContext.contents}_${i}`; // :projectNames_0, :projectNames_1
+                  placeholders.push(`:${paramName}`);
+                  (options.bindParams as Record<string, any>)[paramName] = value[i];
+                }
+                result += `(${placeholders.join(',')})`; // IN (:p_0,:p_1,:p3)
+              } else {
+                result += `:${tagContext.contents}`;
+                (options.bindParams as Record<string, any>)[tagContext.contents] = value;
+              }
+              break;
+            }
+            default: {
+              // generateSQLの場合
+              const escapedValue = this.extractValue(tagContext.contents, entity);
+              result += value == null ? '' : escapedValue;
+            }
+          }
           break;
         }
         default:
@@ -392,7 +516,28 @@ export class SQLBuilder {
   }
 
   /**
+   * entityで指定したオブジェクトからドットで連結されたプロパティキーに該当する値を取得する
+   *
+   * @param {Record<string, any>} entity
+   * @param {string} property
+   * @returns {any}
+   */
+  private getProperty(entity: Record<string, any>, property: string): any {
+    const propertyPath = property.split('.');
+    let value = entity;
+    for (const prop of propertyPath) {
+      if (value && value.hasOwnProperty(prop)) {
+        value = value[prop];
+      } else {
+        return undefined;
+      }
+    }
+    return value;
+  }
+
+  /**
    * entityからparamで指定した値を文字列で取得する
+   * entityの値がstringの場合、SQLインジェクションの危険のある文字はエスケープする
    *
    * * 返却する値が配列の場合は丸括弧で括り、各項目をカンマで区切る
    *   ('a', 'b', 'c')
@@ -412,15 +557,7 @@ export class SQLBuilder {
     responseType?: T
   }): ExtractValueType<T> {
     try {
-      const propertyPath = property.split('.');
-      let value: any = entity;
-      for (const prop of propertyPath) {
-        if (value && value.hasOwnProperty(prop)) {
-          value = value[prop];
-        } else {
-          return undefined as ExtractValueType<T>;
-        }
-      }
+      const value = this.getProperty(entity, property);
       let result = '';
       switch (options?.responseType) {
         case 'array':

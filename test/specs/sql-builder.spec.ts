@@ -1453,6 +1453,91 @@ describe('@/server/common/sql-builder.ts', () => {
           user_id = 0
       `));
     });
+    it('generateSQL.010.042', () => {
+      // 括弧内の演算優先順位 (aだけがtruthy - 成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF (a || b && c)*/user_id = /*userId*/'abc'/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        a: 'a',
+        b: undefined,
+        c: null,
+        userId: '12345'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          user_id = '12345'
+      `));
+    });
+    it('generateSQL.010.043', () => {
+      // 括弧内の演算優先順位 (bだけがtruthy - 不成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF (a || b && c)*/user_id = /*userId*/'abc'/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        a: undefined,
+        b: 'b',
+        c: null,
+        userId: '12345'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.044', () => {
+      // 括弧内の演算優先順位 (cだけがtruthy - 不成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF (a || b && c)*/user_id = /*userId*/'abc'/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        a: null,
+        b: undefined,
+        c: 'c',
+        userId: '12345'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+
+    it('generateSQL.010.045', () => {
+      // 括弧内の演算優先順位 (bとcがtruthy - 成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF (a || b && c)*/user_id = /*userId*/'abc'/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        a: null,
+        b: 'b',
+        c: 'c',
+        userId: '12345'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          user_id = '12345'
+      `));
+    });
 
     it('generateParameterizedSQL.001.001', () => {
       // [postgresql] シンプルなパラメータの展開

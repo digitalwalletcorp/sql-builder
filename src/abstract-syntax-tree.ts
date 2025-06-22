@@ -5,12 +5,10 @@ type Token =
   | { type: 'OPERATOR'; value: string }   // 例: >, &&, ===, !=
   | { type: 'NUMBER'; value: number }     // 例: 100.123
   | { type: 'BOOLEAN'; value: boolean }   // 例: true, false
-  | { type: 'NULL' }
-  | { type: 'UNDEFINED' }
   | { type: 'STRING'; value: string }     // 例: 'abc'
+  | { type: 'NULL'; value: null }
+  | { type: 'UNDEFINED', value: undefined }
   | { type: 'PARENTHESIS'; value: '(' | ')' };
-
-type RpnToken = Token | { type: 'MEMBER_ACCESS_PART', value: string };
 
 // 演算子の優先順位と結合性 (より長い演算子を先に定義)
 const PRECEDENCE: {
@@ -52,7 +50,7 @@ export class AbstractSyntaxTree {
       const result = this.evaluateRpn(rpnTokens, entity); // 評価
       return result;
     } catch (error) {
-      console.warn('Error evaluating condition:', condition, entity, error);
+      console.error('Error evaluating condition:', condition, entity, error);
       throw error;
     }
   }
@@ -170,10 +168,10 @@ export class AbstractSyntaxTree {
             tokens.push({ type: 'BOOLEAN', value: false });
             break;
           case 'null':
-            tokens.push({ type: 'NULL' });
+            tokens.push({ type: 'NULL', value: null });
             break;
           case 'undefined':
-            tokens.push({ type: 'UNDEFINED' });
+            tokens.push({ type: 'UNDEFINED', value: undefined });
             break;
           default:
             tokens.push({ type: 'IDENTIFIER', value: ident }); // プロパティ名
@@ -192,31 +190,26 @@ export class AbstractSyntaxTree {
    * Shunting Yardアルゴリズムで構文を逆ポーランド記法(Reverse Polish Notation)に変換する
    *
    * @param {Token[]} tokens
-   * @returns {RpnToken[]}
+   * @returns {Token[]}
    */
-  private shuntingYard(tokens: Token[]): RpnToken[] {
-    const output: RpnToken[] = [];
-    const operatorStack: Token[] = [];
+  private shuntingYard(tokens: Token[]): Token[] {
+    const output: Token[] = [];
+    const operatorStack: (Token & { value: string })[] = [];
 
     for (const token of tokens) {
-      const type = token.type;
-      switch (type) {
+      switch (token.type) {
         case 'NUMBER':
         case 'BOOLEAN':
         case 'NULL':
         case 'UNDEFINED':
         case 'STRING':
-          output.push(token);
-          break;
         case 'IDENTIFIER':
-          // 識別子（プロパティパスの可能性）をそのまま出力
           output.push(token);
           break;
         case 'OPERATOR':
           const op1 = token;
           while (operatorStack.length) {
-            // TODO: 型キャストが必要になるので、Geniericsを強化する
-            const op2 = operatorStack[operatorStack.length - 1] as { type: string, value: string };
+            const op2 = operatorStack[operatorStack.length - 1];
 
             // 括弧内は処理しない
             if (op2.value === '(') {
@@ -224,11 +217,8 @@ export class AbstractSyntaxTree {
             }
 
             // 優先順位のルールに従う
-            if (
-              (PRECEDENCE[op1.value].associativity === 'left' && PRECEDENCE[op1.value].precedence <= PRECEDENCE[op2.value].precedence)
-              // ||
-              // (PRECEDENCE[op1.value].associativity === 'right' && PRECEDENCE[op1.value].precedence < PRECEDENCE[op2.value].precedence)
-            ) {
+            if (PRECEDENCE[op1.value].associativity === 'left'
+                && PRECEDENCE[op1.value].precedence <= PRECEDENCE[op2.value].precedence) {
               output.push(operatorStack.pop()!);
             } else {
               break;
@@ -254,8 +244,7 @@ export class AbstractSyntaxTree {
             }
           }
           break;
-        default:
-          throw new Error(`Unexpected token type: ${type}`);
+        // default:
       }
     }
 
@@ -273,24 +262,21 @@ export class AbstractSyntaxTree {
   /**
    * 逆ポーランド記法(Reverse Polish Notation)のトークンを評価する
    *
-   * @param {RpnToken[]} rpnTokens
+   * @param {Token[]} rpnTokens
    * @param {Record<string, any>} entity
    * @returns {boolean}
    */
-  private evaluateRpn(rpnTokens: RpnToken[], entity: Record<string, any>): boolean {
+  private evaluateRpn(rpnTokens: Token[], entity: Record<string, any>): boolean {
     const stack: any[] = [];
 
     for (const token of rpnTokens) {
-      const type = token.type;
-      switch (type) {
+      switch (token.type) {
         case 'NUMBER':
         case 'BOOLEAN':
+        case 'STRING':
         case 'NULL':
         case 'UNDEFINED':
-        case 'STRING':
-          if ('value' in token) {
-            stack.push(token.value);
-          }
+          stack.push(token.value);
           break;
         case 'IDENTIFIER':
           stack.push(common.getProperty(entity, token.value));
@@ -321,8 +307,7 @@ export class AbstractSyntaxTree {
             default: throw new Error(`Unknown operator: ${token.value}`);
           }
           break;
-        default:
-          throw new Error(`Unexpected token type in RPN: ${type}`);
+        // default:
       }
     }
 

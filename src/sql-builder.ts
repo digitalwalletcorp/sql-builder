@@ -1,3 +1,6 @@
+import * as common from './common';
+import { AbstractSyntaxTree } from './abstract-syntax-tree';
+
 type TagType = 'BEGIN' | 'IF' | 'FOR' | 'END' | 'BIND';
 type ExtractValueType<T extends 'string' | 'array' | 'object'>
   = T extends 'string'
@@ -164,57 +167,56 @@ export class SQLBuilder {
     /**
      * 「\/* *\/」で囲まれたすべての箇所を抽出
      */
-    const rootMatcher = template.match(this.REGEX_TAG_PATTERN);
+    const matches = template.matchAll(this.REGEX_TAG_PATTERN);
 
     // まず最初にREGEX_TAG_PATTERNで解析した情報をそのままフラットにTagContextの配列に格納
     let pos = 0;
     const tagContexts: TagContext[] = [];
-    if (rootMatcher) {
-      for (const matchContent of rootMatcher) {
-        const index = template.indexOf(matchContent, pos);
-        pos = index + 1;
-        const tagContext: TagContext = {
-          type: null as unknown as TagType,
-          match: matchContent,
-          contents: '',
-          startIndex: index,
-          endIndex: index + matchContent.length,
-          sub: [],
-          parent: null,
-          status: 0
-        };
-        switch (true) {
-          case matchContent === '/*BEGIN*/': {
-            tagContext.type = 'BEGIN';
-            break;
-          }
-          case matchContent.startsWith('/*IF'): {
-            tagContext.type = 'IF';
-            const contentMatcher = matchContent.match(/^\/\*IF\s+(.*?)\*\/$/);
-            tagContext.contents = contentMatcher && contentMatcher[1] || '';
-            break;
-          }
-          case matchContent.startsWith('/*FOR'): {
-            tagContext.type = 'FOR';
-            const contentMatcher = matchContent.match(/^\/\*FOR\s+(.*?)\*\/$/);
-            tagContext.contents = contentMatcher && contentMatcher[1] || '';
-            break;
-          }
-          case matchContent === '/*END*/': {
-            tagContext.type = 'END';
-            break;
-          }
-          default: {
-            tagContext.type = 'BIND';
-            const contentMatcher = matchContent.match(/\/\*(.*?)\*\//);
-            tagContext.contents = contentMatcher && contentMatcher[1] || '';
-            // ダミー値の終了位置をendIndexに設定
-            const dummyEndIndex = this.getDummyParamEndIndex(template, tagContext);
-            tagContext.endIndex = dummyEndIndex;
-          }
+    for (const match of matches) {
+      const matchContent = match[0];
+      const index = match.index;
+      pos = index + 1;
+      const tagContext: TagContext = {
+        type: 'BIND', // ダミーの初期値。後続処理で適切なタイプに変更する。
+        match: matchContent,
+        contents: '',
+        startIndex: index,
+        endIndex: index + matchContent.length,
+        sub: [],
+        parent: null,
+        status: 0
+      };
+      switch (true) {
+        case matchContent === '/*BEGIN*/': {
+          tagContext.type = 'BEGIN';
+          break;
         }
-        tagContexts.push(tagContext);
+        case matchContent.startsWith('/*IF'): {
+          tagContext.type = 'IF';
+          const contentMatcher = matchContent.match(/^\/\*IF\s+(.*?)\*\/$/);
+          tagContext.contents = contentMatcher && contentMatcher[1] || '';
+          break;
+        }
+        case matchContent.startsWith('/*FOR'): {
+          tagContext.type = 'FOR';
+          const contentMatcher = matchContent.match(/^\/\*FOR\s+(.*?)\*\/$/);
+          tagContext.contents = contentMatcher && contentMatcher[1] || '';
+          break;
+        }
+        case matchContent === '/*END*/': {
+          tagContext.type = 'END';
+          break;
+        }
+        default: {
+          tagContext.type = 'BIND';
+          const contentMatcher = matchContent.match(/\/\*(.*?)\*\//);
+          tagContext.contents = contentMatcher && contentMatcher[1] || '';
+          // ダミー値の終了位置をendIndexに設定
+          const dummyEndIndex = this.getDummyParamEndIndex(template, tagContext);
+          tagContext.endIndex = dummyEndIndex;
+        }
       }
+      tagContexts.push(tagContext);
     }
 
     // できあがったTagContextの配列から、BEGEN、IFの場合は次の対応するENDが出てくるまでをsubに入れ直して構造化し、
@@ -326,7 +328,10 @@ export class SQLBuilder {
             for (const value of array) {
               // 再帰呼び出しによりposが進むので、ループのたびにposを戻す必要がある
               pos.index = tagContext.endIndex;
-              result += this.parse(pos, template, { [bindName]: value }, tagContext.sub, options);
+              result += this.parse(pos, template, {
+                ...entity,
+                [bindName]: value
+              }, tagContext.sub, options);
               // FORループするときは各行で改行する
               result += '\n';
             }
@@ -353,7 +358,7 @@ export class SQLBuilder {
         case 'BIND': {
           result += template.substring(pos.index, tagContext.startIndex);
           pos.index = tagContext.endIndex;
-          const value = this.getProperty(entity, tagContext.contents);
+          const value = common.getProperty(entity, tagContext.contents);
           switch (options?.bindType) {
             case 'postgres': {
               // PostgreSQL形式の場合、$Nでバインドパラメータを展開
@@ -405,7 +410,7 @@ export class SQLBuilder {
             default: {
               // generateSQLの場合
               const escapedValue = this.extractValue(tagContext.contents, entity);
-              result += value == null ? '' : escapedValue;
+              result += escapedValue ?? '';
             }
           }
           break;
@@ -499,40 +504,13 @@ export class SQLBuilder {
    */
   private evaluateCondition(condition: string, entity: Record<string, any>): boolean {
     try {
-      const evaluate = new Function('entity', `
-        with (entity) {
-          try {
-            return ${condition};
-          } catch(error) {
-            return false;
-          }
-        }`
-      );
-      return !!evaluate(entity);
+      const ast = new AbstractSyntaxTree();
+      const result = ast.evaluateCondition(condition, entity);
+      return result;
     } catch (error) {
       console.warn('Error evaluating condition:', condition, entity, error);
       return false;
     }
-  }
-
-  /**
-   * entityで指定したオブジェクトからドットで連結されたプロパティキーに該当する値を取得する
-   *
-   * @param {Record<string, any>} entity
-   * @param {string} property
-   * @returns {any}
-   */
-  private getProperty(entity: Record<string, any>, property: string): any {
-    const propertyPath = property.split('.');
-    let value = entity;
-    for (const prop of propertyPath) {
-      if (value && value.hasOwnProperty(prop)) {
-        value = value[prop];
-      } else {
-        return undefined;
-      }
-    }
-    return value;
   }
 
   /**
@@ -557,7 +535,7 @@ export class SQLBuilder {
     responseType?: T
   }): ExtractValueType<T> {
     try {
-      const value = this.getProperty(entity, property);
+      const value = common.getProperty(entity, property);
       let result = '';
       switch (options?.responseType) {
         case 'array':

@@ -121,6 +121,7 @@ describe('@/server/common/sql-builder.ts', () => {
         /*END*/
       `;
       const bindEntity = {
+        projectNames: [] // 長さ0の配列
       };
       const sql = builder.generateSQL(template, bindEntity);
       expect(formatSQL(sql)).toBe(formatSQL(`
@@ -268,6 +269,7 @@ describe('@/server/common/sql-builder.ts', () => {
         OFFSET /*offset*/0
       `;
       const bindEntity = {
+        projectNames: [], // 長さ0の配列
         limit: 10,
         offset: 10
       };
@@ -382,6 +384,36 @@ describe('@/server/common/sql-builder.ts', () => {
           AND project_name LIKE '%' || 'aaa' || '%'
           AND project_name LIKE '%' || 'bbb' || '%'
           AND project_name LIKE '%' || 'ccc' || '%'
+      `));
+    });
+
+    it('generateSQL.003.003', () => {
+      // 特殊ケース: FOR文の中にFORと関連しないタグが存在する
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM items
+        /*BEGIN*/WHERE
+          1 = 1
+          /*FOR id:itemIds*/
+            AND item_id = /*id*/0
+            AND item_name LIKE '%' || /*name*/'default' || '%'
+          /*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        itemIds: [1, 2],
+        name: 'test' // FORと関連のない値
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      // 以下のSQLは実際には結果を返さないクエリになるが、生成する分には正しく生成できる
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM items
+        WHERE
+          1 = 1
+          AND item_id = 1
+          AND item_name LIKE '%' || 'test' || '%'
+          AND item_id = 2
+          AND item_name LIKE '%' || 'test' || '%'
       `));
     });
     it('generateSQL.004.001', () => {
@@ -514,6 +546,7 @@ describe('@/server/common/sql-builder.ts', () => {
       `));
     });
     it('generateSQL.005.001', () => {
+      // バインドパラメータがSQL関数内に存在するケース
       const builder = new SQLBuilder();
       const template = `
         SELECT * FROM activity
@@ -606,6 +639,818 @@ describe('@/server/common/sql-builder.ts', () => {
         FROM user
         WHERE
           data_key IN ('a\'\'b\'\'c','d\\\\e\\\\f')
+      `));
+    });
+    it('generateSQL.006.004', () => {
+      // 文字列内のシングルクォートエスケープ (バックスラッシュ)
+      // ASTのtokenizeで '\' が処理されることを確認
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF name === 'O\\'Reilly'*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        name: "O'Reilly" // 実際の値はエスケープされていない文字列
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          user_id = 0
+      `));
+    });
+
+    it('generateSQL.006.005', () => {
+      // 文字列内のバックスラッシュエスケープ (バックスラッシュ自身)
+      // ASTのtokenizeで '\\' が処理されることを確認
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF path === 'C:\\\\Program Files'*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        path: "C:\\Program Files" // 実際の値はエスケープされていない文字列
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          user_id = 0
+      `));
+    });
+
+    it('generateSQL.006.006', () => {
+      // 文字列内のバックスラッシュと他の文字の組み合わせ (不正でないことの確認)
+      // ASTのtokenizeで \' や \\ が処理されることを確認
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF desc === 'a\\\'b\\\\c'*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        desc: "a'b\\c"
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          user_id = 0
+      `));
+    });
+
+    // IF構文で利用する演算子のパターン網羅
+    it('generateSQL.010.001', () => {
+      // || (OR条件 - 成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF id === 'a' || id === 'b'*/id = /*id*/'a'/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        id: 'b'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          id = 'b'
+      `));
+    });
+    it('generateSQL.010.002', () => {
+      // || (OR条件 - 不成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF id === 'a' || id === 'b'*/id = /*id*/'a'/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        id: 'c'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.003', () => {
+      // && (AND条件 -- 成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF 1 <= id.length && id.length <= 3*/id = /*id*/'a'/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        id: 'ab'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          id = 'ab'
+      `));
+    });
+    it('generateSQL.010.004', () => {
+      // && (AND条件 -- 不成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF 1 <= id.length && id.length <= 3*/id = /*id*/'a'/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        id: 'abcd'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.005', () => {
+      // == (等価条件 - 成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF id == 'x'*/id = /*id*/'a'/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        id: 'x'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          id = 'x'
+      `));
+    });
+    it('generateSQL.010.006', () => {
+      // == (等価条件 - 不成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF id == 'x'*/id = /*id*/'a'/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        id: 'y'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.007', () => {
+      // != (不等価条件 - 成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF id != 'x'*/id = /*id*/'a'/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        id: 'y'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          id = 'y'
+      `));
+    });
+    it('generateSQL.010.008', () => {
+      // != (不等価条件 - 不成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF id != 'x'*/id = /*id*/'a'/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        id: 'x'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.009', () => {
+      // === (厳密等価条件 - 成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF id === 'x'*/id = /*id*/'a'/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        id: 'x'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          id = 'x'
+      `));
+    });
+    it('generateSQL.010.010', () => {
+      // === (厳密等価条件 - 不成立, 型違い)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF id === 1*/id = /*id*/'a'/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        id: '1' // 文字列の'1'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.011', () => {
+      // !== (厳密不等価条件 - 成立, 型違い)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF id !== 1*/id = /*id*/'a'/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        id: '1' // 文字列の'1'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          id = '1'
+      `));
+    });
+    it('generateSQL.010.012', () => {
+      // !== (厳密不等価条件 - 不成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF id !== 'x'*/id = /*id*/'a'/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        id: 'x'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.013', () => {
+      // < (未満条件 - 成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF age < 30*/age = /*age*/0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        age: 25
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          age = 25
+      `));
+    });
+    it('generateSQL.010.014', () => {
+      // < (未満条件 - 不成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF age < 30*/age = /*age*/0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        age: 30
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.015', () => {
+      // <= (以下条件 - 成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF age <= 30*/age = /*age*/0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        age: 30
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          age = 30
+      `));
+    });
+    it('generateSQL.010.016', () => {
+      // <= (以下条件 - 不成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF age <= 30*/age = /*age*/0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        age: 31
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.017', () => {
+      // > (より大条件 - 成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF age > 30*/age = /*age*/0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        age: 31
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          age = 31
+      `));
+    });
+    it('generateSQL.010.018', () => {
+      // > (より大条件 - 不成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF age > 30*/age = /*age*/0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        age: 30
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.019', () => {
+      // >= (以上条件 - 成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF age >= 30*/age = /*age*/0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        age: 30
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          age = 30
+      `));
+    });
+    it('generateSQL.010.020', () => {
+      // >= (以上条件 - 不成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF age >= 30*/age = /*age*/0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        age: 29
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.021', () => {
+      // ! (NOT演算子 - 成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF !isAdmin*/status = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        isAdmin: false
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          status = 0
+      `));
+    });
+    it('generateSQL.010.022', () => {
+      // ! (NOT演算子 - 不成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF !isAdmin*/status = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        isAdmin: true
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.023', () => {
+      // 括弧によるグループ化 (成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF (isAdmin || isEditor) && isActive*/status = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        isAdmin: true,
+        isEditor: false,
+        isActive: true
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          status = 0
+      `));
+    });
+    it('generateSQL.010.024', () => {
+      // 括弧によるグループ化 (不成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF (isAdmin || isEditor) && isActive*/status = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        isAdmin: false,
+        isEditor: false,
+        isActive: true
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.025', () => {
+      // NULLとの比較 (== null) - 成立
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF username == null*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        username: null
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          user_id = 0
+      `));
+    });
+    it('generateSQL.010.026', () => {
+      // NULLとの比較 (== null) - 不成立
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF username == null*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        username: 'test'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.027', () => {
+      // UNDEFINEDとの比較 (=== undefined) - 成立
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF username === undefined*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        // username: undefined, // undefinedなプロパティはオブジェクトに存在しない
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          user_id = 0
+      `));
+    });
+    it('generateSQL.010.028', () => {
+      // UNDEFINEDとの比較 (=== undefined) - 不成立
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF username === undefined*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        username: 'test'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.029', () => {
+      // 文字列リテラルとの比較 (=== 'abc') - 成立
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF status === 'active'*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        status: 'active'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          user_id = 0
+      `));
+    });
+    it('generateSQL.010.030', () => {
+      // 文字列リテラルとの比較 (=== 'abc') - 不成立
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF status === 'active'*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        status: 'inactive'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.031', () => {
+      // 数値リテラルとの比較 (=== 123) - 成立
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF id === 123*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        id: 123
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          user_id = 0
+      `));
+    });
+    it('generateSQL.010.032', () => {
+      // 数値リテラルとの比較 (=== 123) - 不成立
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF id === 123*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        id: 456
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.033', () => {
+      // 複合条件: ORとANDの組み合わせと括弧
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF (role === 'admin' || role === 'super_user') && status === 'active'*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        role: 'admin',
+        status: 'active'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          user_id = 0
+      `));
+    });
+    it('generateSQL.010.034', () => {
+      // 複合条件: ORとANDの組み合わせと括弧 (不成立)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF (role === 'admin' || role === 'super_user') && status === 'active'*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        role: 'user',
+        status: 'active'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.035', () => {
+      // プロパティが存在しない場合の評価 (false)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF nonExistentProp*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        // nonExistentProp は存在しない
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.036', () => {
+      // プロパティがundefinedの場合の評価 (false)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF undefinedProp*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        undefinedProp: undefined
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.037', () => {
+      // プロパティがnullの場合の評価 (false)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF nullProp*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        nullProp: null
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+      `));
+    });
+    it('generateSQL.010.038', () => {
+      // Booleanリテラルとの比較 (true) - 成立
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF isActive === true*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        isActive: true
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          user_id = 0
+      `));
+    });
+    it('generateSQL.010.039', () => {
+      // Booleanリテラルとの比較 (false) - 成立
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF isActive === false*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        isActive: false
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          user_id = 0
+      `));
+    });
+    it('generateSQL.010.040', () => {
+      // 括弧の評価とオペレータースタックでの '(' の処理
+      // shuntingYardの '(' 処理
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF a > 10 && (b < 20 || c === true)*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        a: 15,
+        b: 15,
+        c: false
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          user_id = 0
+      `));
+    });
+    it('generateSQL.010.041', () => {
+      // 括弧外のNOT演算子
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF !(status === 'inactive')*/user_id = 0/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        status: 'active'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          user_id = 0
       `));
     });
 

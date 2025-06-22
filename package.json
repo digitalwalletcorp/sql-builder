@@ -1,6 +1,6 @@
 {
   "name": "@digitalwalletcorp/sql-builder",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "This is a library for building SQL",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

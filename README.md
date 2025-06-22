@@ -234,6 +234,49 @@ Parameters: [ 123, 'project_a', 'project_b' ]
 | Bind Variable | `/*variable*/` | Binds a value from the `entity`. It automatically formats values: strings are quoted (`'value'`), numbers are left as is (`123`), and arrays are turned into comma-separated lists in parentheses (`('a','b',123)`). |
 | END | `/*END*/` | Marks the end of an `IF`, `BEGIN`, or `FOR` block. |
 
+---
+### 💡 Supported Property Paths
+
+For `/*variable*/` (Bind Variable) tags and the `collection` part of `/*FOR item:collection*/` tags, you can specify a path to access properties within the `entity` object.
+
+* **Syntax:** `propertyName`, `nested.property`.
+* **Supported:** Direct property access (e.g., `user.id`, `order.items.length`).
+* **Unsupported:** Function calls (e.g., `user.name.trim()`, `order.items.map(...)`) or any complex JavaScript expressions.
+
+**Example:**
+
+* **Valid Expression:** `/*userId*/` (accesses `entity.userId` as simple property)
+* **Valid Expression:** `/*items*/` (accesses `entity.items` as array)
+* **Invalid Expression:** `/*userId.slice(0, 10)*/` (Function call)
+* **Invalid Expression:** `/*items.filter(...)*/` (Function call)
+
+---
+
+### 💡 Supported `IF` Condition Syntax
+
+The `condition` inside an `/*IF ...*/` tag is evaluated as a JavaScript expression against the `entity` object. To ensure security and maintain simplicity, only a **limited subset of JavaScript syntax** is supported.
+
+**Supported Operations:**
+
+* **Entity Property Access:** You can reference properties from the `entity` object (e.g., `propertyName`, `nested.property`).
+* **Object Property Access:** Access the `length`, `size` or other property of object (e.g., `String.length`, `Array.length`, `Set.size`, `Map.size`).
+* **Comparison Operators:** `==`, `!=`, `===`, `!==`, `<`, `<=`, `>`, `>=`
+* **Logical Operators:** `&&` (AND), `||` (OR), `!` (NOT)
+* **Literals:** Numbers (`123`, `0.5`), Booleans (`true`, `false`), `null`, `undefined`, and string literals (`'value'`, `"value"`).
+* **Parentheses:** `()` for grouping expressions.
+
+**Unsupported Operations (and will cause an error if used):**
+
+* **Function Calls:** You **cannot** call functions on properties (e.g., `user.name.startsWith('A')`, `array.map(...)`).
+
+**Example:**
+
+* **Valid Condition:** `user.age > 18 && user.name.length > 0 && user.id != null`
+* **Invalid Condition:** `user.name.startsWith('A')` (Function call)
+* **Invalid Condition:** `user.role = 'admin'` (Assignment)
+
+---
+
 ## 📜 License
 
 This project is licensed under the MIT License. See the [LICENSE](https://opensource.org/licenses/MIT) file for details.

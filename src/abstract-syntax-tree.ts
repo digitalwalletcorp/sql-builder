@@ -45,12 +45,15 @@ export class AbstractSyntaxTree {
    */
   public evaluateCondition(condition: string, entity: Record<string, any>): boolean {
     try {
+      // 一般的な条件チェックのルーチンをまとめて実施する
+      // 生成されたトークンに手を加えたい場合、各関数はpublicになっているので個別に呼び出し可能
       const tokens = this.tokenize(condition); // トークン化
       const rpnTokens = this.shuntingYard(tokens); // RPN変換
       const result = this.evaluateRpn(rpnTokens, entity); // 評価
       return result;
-    } catch (error) {
-      console.error('Error evaluating condition:', condition, entity, error);
+    } catch (error: any) {
+      error.condition = condition;
+      error.entity = entity;
       throw error;
     }
   }
@@ -138,11 +141,11 @@ export class AbstractSyntaxTree {
           while (j < condition.length && condition[j] !== quote) {
             // エスケープ文字の処理 (\' や \\) は必要に応じて追加
             if (condition[j] === '\\' && j + 1 < condition.length) {
-                strValue += condition[j+1];
-                j += 2;
+              strValue += condition[j+1];
+              j += 2;
             } else {
-                strValue += condition[j];
-                j++;
+              strValue += condition[j];
+              j++;
             }
           }
           if (condition[j] === quote) {
@@ -151,7 +154,7 @@ export class AbstractSyntaxTree {
             continue;
           } else {
             // クォートが閉じられていない
-            throw new Error('Unterminated string literal');
+            throw new Error(`Unterminated string literal: '${condition}', index: ${j}`);
           }
         default:
       }
@@ -192,8 +195,9 @@ export class AbstractSyntaxTree {
    * @param {Token[]} tokens
    * @returns {Token[]}
    */
-  private shuntingYard(tokens: Token[]): Token[] {
+  public shuntingYard(tokens: Token[]): Token[] {
     const output: Token[] = [];
+    // operatorStackにはIDENTIFIERとPARENTHESISしか格納されないので、必ず{ value: string }を持つ
     const operatorStack: (Token & { value: string })[] = [];
 
     for (const token of tokens) {
@@ -231,9 +235,9 @@ export class AbstractSyntaxTree {
             operatorStack.push(token);
           } else if (token.value === ')') {
             let foundLeftParen = false;
-            while (operatorStack.length > 0) {
+            while (operatorStack.length) {
               const op = operatorStack.pop()!;
-              if ('value' in op && op.value === '(') {
+              if (op.value === '(') {
                 foundLeftParen = true;
                 break;
               }
@@ -250,7 +254,7 @@ export class AbstractSyntaxTree {
 
     while (operatorStack.length) {
       const op = operatorStack.pop()!;
-      if ('value' in op && (op.value === '(' || op.value === ')')) {
+      if (op.value === '(' || op.value === ')') {
         throw new Error('Mismatched parentheses');
       }
       output.push(op);
@@ -266,7 +270,7 @@ export class AbstractSyntaxTree {
    * @param {Record<string, any>} entity
    * @returns {boolean}
    */
-  private evaluateRpn(rpnTokens: Token[], entity: Record<string, any>): boolean {
+  public evaluateRpn(rpnTokens: Token[], entity: Record<string, any>): boolean {
     const stack: any[] = [];
 
     for (const token of rpnTokens) {
@@ -312,7 +316,7 @@ export class AbstractSyntaxTree {
     }
 
     if (stack.length !== 1) {
-      throw new Error('Invalid expression');
+      throw new Error(`Invalid expression: ${JSON.stringify(rpnTokens)}`);
     }
     return !!stack[0];
   }

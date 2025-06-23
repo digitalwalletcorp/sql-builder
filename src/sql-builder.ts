@@ -503,14 +503,9 @@ export class SQLBuilder {
    * @returns {boolean}
    */
   private evaluateCondition(condition: string, entity: Record<string, any>): boolean {
-    try {
-      const ast = new AbstractSyntaxTree();
-      const result = ast.evaluateCondition(condition, entity);
-      return result;
-    } catch (error) {
-      console.warn('Error evaluating condition:', condition, entity, error);
-      return false;
-    }
+    const ast = new AbstractSyntaxTree();
+    const result = ast.evaluateCondition(condition, entity);
+    return result;
   }
 
   /**

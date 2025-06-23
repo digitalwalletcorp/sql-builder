@@ -1539,6 +1539,21 @@ describe('@/server/common/sql-builder.ts', () => {
       `));
     });
 
+    it('generateSQL.099.001', () => {
+      // IF構文エラー (evaluating condition)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF userId == 123 '12345'*/user_id = /*userId*/'x'/*END*/
+        /*END*/
+      `;
+      const entity = {
+        userId: '12345'
+      }
+      expect(() => builder.generateSQL(template, entity)).toThrow('Invalid expression:');
+    });
+
     it('generateParameterizedSQL.001.001', () => {
       // [postgresql] シンプルなパラメータの展開
       const builder = new SQLBuilder();

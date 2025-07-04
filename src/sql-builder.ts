@@ -488,6 +488,8 @@ export class SQLBuilder {
           case c === ' ' || c === '\t':
             // 空白文字
             return i;
+          case c === ',':
+            return i;
           default:
         }
       }

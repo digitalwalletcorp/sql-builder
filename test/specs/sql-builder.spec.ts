@@ -1758,5 +1758,162 @@ describe('@/server/common/sql-builder.ts', () => {
         statuses_1: 2
       });
     });
+
+    it('generateParameterizedSQL.004.001', () => {
+      // INTERVALを使ったクエリ_1
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT
+          wallet_id
+        FROM check_identification_result
+        WHERE
+          verify_result IS TRUE
+          /*IF verifyExcludeDays !== -1*/AND NOW() - INTERVAL /*verifyExcludeDays*/30 days <= verified_at/*END*/
+      `;
+      const bindEntity = {
+        verifyExcludeDays: -1
+      };
+      const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity, 'postgres');
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT
+          wallet_id
+        FROM check_identification_result
+        WHERE
+          verify_result IS TRUE
+      `));
+      expect(bindParams).toEqual([]);
+    });
+    it('generateParameterizedSQL.004.002', () => {
+      // INTERVALを使ったクエリ_2
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT
+          wallet_id
+        FROM check_identification_result
+        WHERE
+          verify_result IS TRUE
+          /*IF verifyExcludeDays !== -1*/AND NOW() - INTERVAL '/*verifyExcludeDays*/30 days 12 hours' <= verified_at/*END*/
+      `;
+      const bindEntity = {
+        verifyExcludeDays: 7
+      };
+      const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity, 'postgres');
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT
+          wallet_id
+        FROM check_identification_result
+        WHERE
+          verify_result IS TRUE
+          AND NOW() - INTERVAL '$1 days 12 hours' <= verified_at
+      `));
+      expect(bindParams).toEqual([
+        7
+      ]);
+    });
+    it('generateParameterizedSQL.004.003', () => {
+      // MERGE文を使ったクエリ
+      const builder = new SQLBuilder();
+      const template = `
+        INSERT INTO check_result (
+          user_id,
+          given_name,
+          middle_name,
+          sur_name,
+          nationality,
+          created_at,
+          updated_at
+        ) VALUES (
+          /*user_id*/12345,
+          /*given_name*/'XXX',
+          /*middle_name*/'XXX',
+          /*sur_name*/'XXX',
+          /*nationality*/'XXX',
+          CURRENT_TIMESTAMP,
+          CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (user_id) DO UPDATE
+        SET
+          given_name = EXCLUDED.given_name,
+          middle_name = EXCLUDED.middle_name,
+          sur_name = EXCLUDED.sur_name,
+          nationality = EXCLUDED.nationality,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE
+          check_result.updated_at <= NOW() - (/*exclude_days*/10 * INTERVAL '1 days')
+      `;
+      const bindEntity = {
+        user_id: 99999,
+        given_name: 'ELIZABETH',
+        middle_name: '',
+        sur_name: 'TURNER',
+        nationality: 'USA',
+        exclude_days: 30
+      };
+      const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity, 'postgres');
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        INSERT INTO check_result (
+          user_id,
+          given_name,
+          middle_name,
+          sur_name,
+          nationality,
+          created_at,
+          updated_at
+        ) VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          CURRENT_TIMESTAMP,
+          CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (user_id) DO UPDATE
+        SET
+          given_name = EXCLUDED.given_name,
+          middle_name = EXCLUDED.middle_name,
+          sur_name = EXCLUDED.sur_name,
+          nationality = EXCLUDED.nationality,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE
+          check_result.updated_at <= NOW() - ($6 * INTERVAL '1 days')
+      `));
+      expect(bindParams).toEqual([
+        99999,
+        'ELIZABETH',
+        '',
+        'TURNER',
+        'USA',
+        30
+      ]);
+    });
+
+    it('generateParameterizedSQL.099.001', () => {
+      // バインドパラメータ中にカンマを含む場合
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM table
+        WHERE
+          user_id = /*userId*/0,
+          remarks = /*remarks*/'a,b,c',
+          verified IS TRUE
+      `;
+      const bindEntity = {
+        userId: 12345,
+        remarks: 'aaa,bbb,ccc'
+      };
+      const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity, 'postgres');
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM table
+        WHERE
+          user_id = $1,
+          remarks = $2,
+          verified IS TRUE
+      `));
+      expect(bindParams).toEqual([
+        12345,
+        'aaa,bbb,ccc'
+      ]);
+    });
   });
 });

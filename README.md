@@ -6,7 +6,7 @@ Inspired by Java's S2Dao, this TypeScript/JavaScript library dynamically generat
 
 The core mechanism involves parsing special SQL comments (`/*IF ...*/`, `/*BEGIN...*/`, etc.) in a template and generating a final query based on a provided data object.
 
-## ✨ Features
+#### ✨ Features
 
 * Dynamic Query Generation: Build complex SQL queries dynamically at runtime.
 * Conditional Logic (`/*IF...*/`): Automatically include or exclude SQL fragments based on JavaScript conditions evaluated against your data.
@@ -15,14 +15,14 @@ The core mechanism involves parsing special SQL comments (`/*IF ...*/`, `/*BEGIN
 * Simple Parameter Binding: Easily bind values from your data object into the SQL query.
 * Zero Dependencies: A single, lightweight class with no external library requirements.
 
-## ✅ Compatibility
+#### ✅ Compatibility
 
 This library is written in pure, environment-agnostic JavaScript/TypeScript and has zero external dependencies, allowing it to run in various environments.
 
 - ✅ **Node.js**: Designed and optimized for server-side use in any modern Node.js environment. This is the **primary and recommended** use case.
 - ⚠️ **Browser-like Environments (Advanced)**: While technically capable of running in browsers (e.g., for use with in-browser databases like SQLite via WebAssembly), generating SQL on the client-side to be sent to a server **is a significant security risk and is strongly discouraged** in typical web applications.
 
-## 📦 Instllation
+#### 📦 Instllation
 
 ```bash
 npm install @digitalwalletcorp/sql-builder
@@ -30,7 +30,7 @@ npm install @digitalwalletcorp/sql-builder
 yarn add @digitalwalletcorp/sql-builder
 ```
 
-## 📖 How It Works & Usage
+#### 📖 How It Works & Usage
 
 You provide the `SQLBuilder` with a template string containing special, S2Dao-style comments and a data object (the "bind entity"). The builder parses the template and generates the final SQL.
 
@@ -75,7 +75,7 @@ console.log(sql1);
 
 // SCENARIO B: No filter conditions are met, so the entire WHERE clause is removed.
 const bindEntity2 = {
-    limit: 100
+  limit: 100
 };
 const sql2 = builder.generateSQL(template, bindEntity2);
 console.log(sql2);
@@ -118,8 +118,9 @@ Use a `/*FOR...*/` block to iterate over an array and generate SQL for each item
 
 ```sql
 SELECT * FROM activity
-WHERE 1 = 1
-/*FOR name:projectNames*/AND project_name LIKE '%' || /*name*/'default' || '%'/*END*/
+WHERE
+  1 = 0
+  /*FOR name:projectNames*/OR project_name LIKE '%' || /*name*/'default' || '%'/*END*/
 ```
 
 **Code:**
@@ -142,13 +143,14 @@ console.log(sql);
 
 ```sql
 SELECT * FROM activity
-WHERE 1 = 1
-AND project_name LIKE '%' || 'api' || '%'
-AND project_name LIKE '%' || 'batch' || '%'
-AND project_name LIKE '%' || 'frontend' || '%'
+WHERE
+  1 = 0
+  OR project_name LIKE '%' || 'api' || '%'
+  OR project_name LIKE '%' || 'batch' || '%'
+  OR project_name LIKE '%' || 'frontend' || '%'
 ```
 
-## 📚 API Reference
+#### 📚 API Reference
 
 ##### `new SQLBuilder()`
 
@@ -235,7 +237,7 @@ Parameters: [ 123, 'project_a', 'project_b' ]
 | END | `/*END*/` | Marks the end of an `IF`, `BEGIN`, or `FOR` block. |
 
 ---
-### 💡 Supported Property Paths
+#### 💡 Supported Property Paths
 
 For `/*variable*/` (Bind Variable) tags and the `collection` part of `/*FOR item:collection*/` tags, you can specify a path to access properties within the `entity` object.
 
@@ -252,7 +254,7 @@ For `/*variable*/` (Bind Variable) tags and the `collection` part of `/*FOR item
 
 ---
 
-### 💡 Supported `IF` Condition Syntax
+#### 💡 Supported `IF` Condition Syntax
 
 The `condition` inside an `/*IF ...*/` tag is evaluated as a JavaScript expression against the `entity` object. To ensure security and maintain simplicity, only a **limited subset of JavaScript syntax** is supported.
 
@@ -277,11 +279,11 @@ The `condition` inside an `/*IF ...*/` tag is evaluated as a JavaScript expressi
 
 ---
 
-## 📜 License
+#### 📜 License
 
 This project is licensed under the MIT License. See the [LICENSE](https://opensource.org/licenses/MIT) file for details.
 
-## 🎓 Advanced Usage & Examples
+#### 🎓 Advanced Usage & Examples
 
 This README covers the basic usage of the library. For more advanced use cases and a comprehensive look at how to verify its behavior, the test suite serves as practical and up-to-date documentation.
 

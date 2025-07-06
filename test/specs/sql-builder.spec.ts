@@ -1758,8 +1758,79 @@ describe('@/server/common/sql-builder.ts', () => {
         statuses_1: 2
       });
     });
-
     it('generateParameterizedSQL.004.001', () => {
+      // [mssql] シンプルなパラメータの展開
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT COUNT(*) AS cnt FROM activity
+        WHERE
+          project_name = /*projectName*/'project1'
+          AND node_name = /*nodeName*/'node1'
+          AND verified = /*verified*/false
+          AND status = /*status*/0
+      `;
+      const bindEntity = {
+        projectName: 'pj1',
+        nodeName: 'node1',
+        verified: true,
+        status: 1
+      };
+      const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity, 'mssql');
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT COUNT(*) AS cnt FROM activity
+        WHERE
+          project_name = @projectName
+          AND node_name = @nodeName
+          AND verified = @verified
+          AND status = @status
+      `));
+      expect(bindParams).toEqual({
+        projectName: 'pj1',
+        nodeName: 'node1',
+        verified: true,
+        status: 1
+      });
+    });
+    it('generateParameterizedSQL.004.002', () => {
+      // [mssql] IN句の展開
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT COUNT(*) AS cnt FROM activity
+        /*BEGIN*/WHERE
+          1 = 1
+          /*IF projectNames.length*/AND project_name IN /*projectNames*/('project1')/*END*/
+          /*IF nodeNames.length*/AND node_name IN /*nodeNames*/('node1')/*END*/
+          /*IF jobNames.length*/AND job_name IN /*jobNames*/('job1')/*END*/
+          /*IF statuses.length*/AND status IN /*statuses*/(1)/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        projectNames: ['pj1', 'pj2'],
+        nodeNames: ['node1', 'node2'],
+        jobNames: [],
+        statuses: [1, 2]
+      };
+      const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity, 'mssql');
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT COUNT(*) AS cnt FROM activity
+        WHERE
+          1 = 1
+          AND project_name IN (@projectNames_0,@projectNames_1)
+          AND node_name IN (@nodeNames_0,@nodeNames_1)
+          AND status IN (@statuses_0,@statuses_1)
+      `));
+      expect(bindParams).toEqual({
+        projectNames_0: 'pj1',
+        projectNames_1: 'pj2',
+        nodeNames_0: 'node1',
+        nodeNames_1: 'node2',
+        statuses_0: 1,
+        statuses_1: 2
+      });
+    });
+
+
+    it('generateParameterizedSQL.010.001', () => {
       // INTERVALを使ったクエリ_1
       const builder = new SQLBuilder();
       const template = `
@@ -1783,7 +1854,7 @@ describe('@/server/common/sql-builder.ts', () => {
       `));
       expect(bindParams).toEqual([]);
     });
-    it('generateParameterizedSQL.004.002', () => {
+    it('generateParameterizedSQL.010.002', () => {
       // INTERVALを使ったクエリ_2
       const builder = new SQLBuilder();
       const template = `
@@ -1810,7 +1881,7 @@ describe('@/server/common/sql-builder.ts', () => {
         7
       ]);
     });
-    it('generateParameterizedSQL.004.003', () => {
+    it('generateParameterizedSQL.010.003', () => {
       // MERGE文を使ったクエリ
       const builder = new SQLBuilder();
       const template = `
@@ -1895,8 +1966,8 @@ describe('@/server/common/sql-builder.ts', () => {
         SELECT * FROM table
         WHERE
           user_id = /*userId*/0,
-          remarks = /*remarks*/'a,b,c',
-          verified IS TRUE
+          AND remarks = /*remarks*/'a,b,c',
+          AND verified IS TRUE
       `;
       const bindEntity = {
         userId: 12345,
@@ -1907,12 +1978,43 @@ describe('@/server/common/sql-builder.ts', () => {
         SELECT * FROM table
         WHERE
           user_id = $1,
-          remarks = $2,
-          verified IS TRUE
+          AND remarks = $2,
+          AND verified IS TRUE
       `));
       expect(bindParams).toEqual([
         12345,
         'aaa,bbb,ccc'
+      ]);
+    });
+    it('generateParameterizedSQL.099.002', () => {
+      // ダミーパラメータを含まない場合(推奨はしない書き方)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM table
+        WHERE
+          user_id = /*userId*/,
+          AND remarks = /*remarks*/,
+          AND verified IS TRUE,
+          AND /*verifiedAt*/ < verified_at
+      `;
+      const bindEntity = {
+        userId: 12345,
+        remarks: 'aaa,bbb,ccc',
+        verifiedAt: '2025-07-05'
+      };
+      const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity, 'postgres');
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM table
+        WHERE
+          user_id = $1,
+          AND remarks = $2,
+          AND verified IS TRUE,
+          AND $3 < verified_at
+      `));
+      expect(bindParams).toEqual([
+        12345,
+        'aaa,bbb,ccc',
+        '2025-07-05'
       ]);
     });
   });

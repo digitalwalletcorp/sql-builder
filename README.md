@@ -6,7 +6,7 @@ Inspired by Java's S2Dao, this TypeScript/JavaScript library dynamically generat
 
 The core mechanism involves parsing special SQL comments (`/*IF ...*/`, `/*BEGIN...*/`, etc.) in a template and generating a final query based on a provided data object.
 
-#### ✨ Features
+### ✨ Features
 
 * Dynamic Query Generation: Build complex SQL queries dynamically at runtime.
 * Conditional Logic (`/*IF...*/`): Automatically include or exclude SQL fragments based on JavaScript conditions evaluated against your data.
@@ -15,14 +15,14 @@ The core mechanism involves parsing special SQL comments (`/*IF ...*/`, `/*BEGIN
 * Simple Parameter Binding: Easily bind values from your data object into the SQL query.
 * Zero Dependencies: A single, lightweight class with no external library requirements.
 
-#### ✅ Compatibility
+### ✅ Compatibility
 
 This library is written in pure, environment-agnostic JavaScript/TypeScript and has zero external dependencies, allowing it to run in various environments.
 
 - ✅ **Node.js**: Designed and optimized for server-side use in any modern Node.js environment. This is the **primary and recommended** use case.
 - ⚠️ **Browser-like Environments (Advanced)**: While technically capable of running in browsers (e.g., for use with in-browser databases like SQLite via WebAssembly), generating SQL on the client-side to be sent to a server **is a significant security risk and is strongly discouraged** in typical web applications.
 
-#### 📦 Instllation
+### 📦 Instllation
 
 ```bash
 npm install @digitalwalletcorp/sql-builder
@@ -150,7 +150,7 @@ WHERE
   OR project_name LIKE '%' || 'frontend' || '%'
 ```
 
-#### 📚 API Reference
+### 📚 API Reference
 
 ##### `new SQLBuilder()`
 
@@ -164,7 +164,7 @@ Generates a final SQL string by processing the template with the provided data e
 * `entity`: A data object whose properties are used for evaluating conditions (`/*IF...*/`) and binding values (`/*variable*/`).
 * Returns: The generated SQL string.
 
-##### `generateParameterizedSQL(template: string, entity: Record<string, any>, bindType: 'postgres' | 'mysql' | 'oracle'): [string, Array<any> | Record<string, any>]`
+##### `generateParameterizedSQL(template: string, entity: Record<string, any>, bindType: 'postgres' | 'mysql' | 'oracle' | 'mssql'): [string, Array<any> | Record<string, any>]`
 
 Generates a SQL string with placeholders for prepared statements and returns an array of bind parameters. This method is crucial for preventing SQL injection.
 
@@ -173,17 +173,18 @@ Generates a SQL string with placeholders for prepared statements and returns an 
 * `bindType`: Specifies the database type ('postgres', 'mysql', or 'oracle') to determine the correct placeholder syntax (`$1`, `?`, or `:name`).
 
     **Note on `bindType` Mapping:**
-    While `bindType` explicitly names PostgreSQL, MySQL, and Oracle, the generated placeholder syntax is compatible with other SQL databases as follows:
+    While `bindType` explicitly names PostgreSQL, MySQL, Oracle, and SQL Server, the generated placeholder syntax is compatible with other SQL databases as follows:
 
     | `bindType` | Placeholder Syntax | Compatible Databases | Bind Parameter Type |
     | :------------- | :----------------- | :------------------- | :------------------ |
     | `postgres`     | `$1`, `$2`, ...    | **PostgreSQL** | `Array<any>`        |
-    | `mysql`        | `?`, `?`, ...      | **MySQL**, **SQLite**, **SQL Server** (for unnamed parameters) | `Array<any>`        |
+    | `mysql`        | `?`, `?`, ...      | **MySQL**, **SQLite** (for unnamed parameters) | `Array<any>`        |
     | `oracle`       | `:name`, `:age`, ... | **Oracle**, **SQLite** (for named parameters) | `Record<string, any>` |
+    | `mssql`        | `@name`, `@age`, ... | **SQL Server** (for named parameters) | `Record<string, any>` |
 
 * Returns: A tuple `[sql, bindParams]`.
     * `sql`: The generated SQL query with appropriate placeholders.
-    * `bindParams`: An array of values (for PostgreSQL/MySQL) or an object of named values (for Oracle) to bind to the placeholders.
+    * `bindParams`: An array of values (for PostgreSQL/MySQL) or an object of named values (for Oracle/SQL Server) to bind to the placeholders.
 
 ##### Example 3: Parameterized SQL with PostgreSQL
 
@@ -226,7 +227,7 @@ SQL: SELECT id, user_name FROM users WHERE 1 = 1 AND user_id = $1 AND project_na
 Parameters: [ 123, 'project_a', 'project_b' ]
 ```
 
-## 🪄 Special Comment Syntax
+### 🪄 Special Comment Syntax
 
 | Tag | Syntax | Description |
 | --- | --- | --- |
@@ -279,11 +280,11 @@ The `condition` inside an `/*IF ...*/` tag is evaluated as a JavaScript expressi
 
 ---
 
-#### 📜 License
+### 📜 License
 
 This project is licensed under the MIT License. See the [LICENSE](https://opensource.org/licenses/MIT) file for details.
 
-#### 🎓 Advanced Usage & Examples
+### 🎓 Advanced Usage & Examples
 
 This README covers the basic usage of the library. For more advanced use cases and a comprehensive look at how to verify its behavior, the test suite serves as practical and up-to-date documentation.
 

@@ -13,22 +13,23 @@ type ExtractValueType<T extends 'string' | 'array' | 'object'>
  * PostgreSQL: $1, $2... 配列
  * MySQL: ? 配列
  * SQLite: ?, $name, :name 配列またはオブジェクト
- * SQL Server: ?, `@name` 配列またはオブジェクト
  * Oracle: :name オブジェクト
+ * SQL Server: `@name` 配列またはオブジェクト
  *
  * 以下をサポートする
  * ・$1, $2 (postgres)
  * ・? (mysql) SQLite, SQL Serverもこれで代替可能
  * ・:name (oracle) SQLiteもこれで代替可能
+ * ・`@name` (mssql)
  */
-type BindType = 'postgres' | 'mysql' | 'oracle';
+type BindType = 'postgres' | 'mysql' | 'oracle' | 'mssql';
 
-type BindParameterType<T extends 'postgres' | 'mysql' | 'oracle'>
-  = T extends 'postgres'
-    ? any[]
-    : T extends 'mysql'
-      ? any[]
-      : Record<string, any>;
+type BindParameterType<T extends 'postgres' | 'mysql' | 'oracle' | 'mssql'>
+  = T extends 'postgres' ? any[]
+  : T extends 'mysql' ? any[]
+  : T extends 'oracle' ? Record<string, any>
+  : T extends 'mssql' ? Record<string, any>
+  : undefined;
 
 interface TagContext {
   type: TagType;
@@ -132,6 +133,9 @@ export class SQLBuilder {
         bindParams = [] as unknown as BindParameterType<T>;
         break;
       case 'oracle':
+        bindParams = {} as BindParameterType<T>;
+        break;
+      case 'mssql':
         bindParams = {} as BindParameterType<T>;
         break;
       default:
@@ -403,6 +407,23 @@ export class SQLBuilder {
                 result += `(${placeholders.join(',')})`; // IN (:p_0,:p_1,:p3)
               } else {
                 result += `:${tagContext.contents}`;
+                (options.bindParams as Record<string, any>)[tagContext.contents] = value;
+              }
+              break;
+            }
+            case 'mssql': {
+              // SQL Server形式の場合、名前付きバインドでバインドパラメータを展開
+              if (Array.isArray(value)) {
+                const placeholders: string[] = [];
+                for (let i = 0; i < value.length; i++) {
+                  // 名前付きバインドで配列の場合は名前が重複する可能性があるので枝番を付与
+                  const paramName = `${tagContext.contents}_${i}`; // @projectNames_0, @projectNames_1
+                  placeholders.push(`@${paramName}`);
+                  (options.bindParams as Record<string, any>)[paramName] = value[i];
+                }
+                result += `(${placeholders.join(',')})`; // IN (:p_0,:p_1,:p3)
+              } else {
+                result += `@${tagContext.contents}`;
                 (options.bindParams as Record<string, any>)[tagContext.contents] = value;
               }
               break;

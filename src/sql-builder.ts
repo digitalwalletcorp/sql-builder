@@ -15,16 +15,26 @@ type ExtractValueType<T extends 'string' | 'array' | 'object'>
  * SQLite: ?, $name, :name 配列またはオブジェクト
  * Oracle: :name オブジェクト
  * SQL Server: `@name` 配列またはオブジェクト
+ * BigQuery: `@name` オブジェクト
  *
  * 以下をサポートする
  * ・$1, $2 (postgres)
  * ・? (mysql) SQLite, SQL Serverもこれで代替可能
  * ・:name (oracle) SQLiteもこれで代替可能
  * ・`@name` (mssql)
+ * ・`@name` (bigquery)
  */
-type BindType = 'postgres' | 'mysql' | 'oracle' | 'mssql';
+const dbTypes = [
+  'postgres',
+  'mysql',
+  'oracle',
+  'mssql',
+  'bigquery'
+] as const;
 
-type BindParameterType<T extends 'postgres' | 'mysql' | 'oracle' | 'mssql'>
+type BindType = typeof dbTypes[number];
+
+type BindParameterType<T extends BindType>
   = T extends 'postgres' ? any[]
   : T extends 'mysql' ? any[]
   : T extends 'oracle' ? Record<string, any>
@@ -90,7 +100,10 @@ export class SQLBuilder {
 
   private REGEX_TAG_PATTERN = /\/\*(.*?)\*\//g;
 
-  constructor() {
+  private bindType?: BindType;
+
+  constructor(bindType?: BindType) {
+    this.bindType = bindType;
   }
 
   /**
@@ -121,25 +134,30 @@ export class SQLBuilder {
    *
    * @param {string} template
    * @param {Record<string, any>} entity
-   * @param {BindType} bindType
+   * @param {BindType} [bindType]
    * @returns {[string, BindParameterType<T>]}
    */
-  public generateParameterizedSQL<T extends BindType>(template: string, entity: Record<string, any>, bindType: T): [string, BindParameterType<T>] {
+  public generateParameterizedSQL<T extends BindType>(template: string, entity: Record<string, any>, bindType?: T): [string, BindParameterType<T>] {
+
+    const bt = bindType || this.bindType;
+
+    if (!bt) {
+      throw new Error('The bindType parameter is mandatory if bindType is not provided in the constructor.');
+    }
 
     let bindParams: BindParameterType<T>;
-    switch (bindType) {
+    switch (bt) {
       case 'postgres':
       case 'mysql':
         bindParams = [] as unknown as BindParameterType<T>;
         break;
       case 'oracle':
-        bindParams = {} as BindParameterType<T>;
-        break;
       case 'mssql':
+      case 'bigquery':
         bindParams = {} as BindParameterType<T>;
         break;
       default:
-        throw new Error(`Unsupported bind type: ${bindType}`);
+        throw new Error(`Unsupported bind type: ${bt}`);
     }
 
     /**
@@ -153,7 +171,7 @@ export class SQLBuilder {
     const tagContexts = this.createTagContexts(template);
     const pos: SharedIndex = { index: 0 };
     const result = this.parse(pos, template, entity, tagContexts, {
-      bindType: bindType,
+      bindType: bt,
       bindIndex: 1,
       bindParams: bindParams
     });
@@ -214,7 +232,7 @@ export class SQLBuilder {
         default: {
           tagContext.type = 'BIND';
           const contentMatcher = matchContent.match(/\/\*(.*?)\*\//);
-          tagContext.contents = contentMatcher && contentMatcher[1] || '';
+          tagContext.contents = contentMatcher && contentMatcher[1]?.trim() || '';
           // ダミー値の終了位置をendIndexに設定
           const dummyEndIndex = this.getDummyParamEndIndex(template, tagContext);
           tagContext.endIndex = dummyEndIndex;
@@ -411,8 +429,9 @@ export class SQLBuilder {
               }
               break;
             }
-            case 'mssql': {
-              // SQL Server形式の場合、名前付きバインドでバインドパラメータを展開
+            case 'mssql':
+            case 'bigquery': {
+              // SQL Server/BigQuery形式の場合、名前付きバインドでバインドパラメータを展開
               if (Array.isArray(value)) {
                 const placeholders: string[] = [];
                 for (let i = 0; i < value.length; i++) {
@@ -542,6 +561,9 @@ export class SQLBuilder {
    *   'abc'
    * * 返却する値がnumber型の場合はそのまま返す
    *   1234
+   * * 返却する値がboolean型の場合はそのまま返す
+   *   true
+   *   false
    *
    * @param {string} property `obj.param1.param2`などのドットで繋いだプロパティ
    * @param {Record<string, any>} entity
@@ -552,25 +574,20 @@ export class SQLBuilder {
   private extractValue<T extends 'string' | 'array' | 'object' = 'string'>(property: string, entity: Record<string, any>, options?: {
     responseType?: T
   }): ExtractValueType<T> {
-    try {
-      const value = common.getProperty(entity, property);
-      let result = '';
-      switch (options?.responseType) {
-        case 'array':
-        case 'object':
-          return value as ExtractValueType<T>;
-        default:
-          // string
-          if (Array.isArray(value)) {
-            result = `(${value.map(v => typeof v === 'string' ? `'${this.escape(v)}'` : v).join(',')})`;
-          } else {
-            result = typeof value === 'string' ? `'${this.escape(value)}'` : value;
-          }
-          return result as ExtractValueType<T>;
-      }
-    } catch (error) {
-      console.warn('Error extracting value', property, entity, error);
-      return undefined as ExtractValueType<T>;
+    const value = common.getProperty(entity, property);
+    let result = '';
+    switch (options?.responseType) {
+      case 'array':
+      case 'object':
+        return value as ExtractValueType<T>;
+      default:
+        // string
+        if (Array.isArray(value)) {
+          result = `(${value.map(v => typeof v === 'string' ? `'${this.escape(v)}'` : v).join(',')})`;
+        } else {
+          result = typeof value === 'string' ? `'${this.escape(value)}'` : value;
+        }
+        return result as ExtractValueType<T>;
     }
   }
 

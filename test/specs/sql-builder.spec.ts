@@ -21,7 +21,7 @@ const formatSQL = (sql: string): string => {
 }
 
 describe('@/server/common/sql-builder.ts', () => {
-  describe('generateSQL', () => {
+  describe('Normal Test Cases for generateSQL', () => {
     it('generateSQL.001.001', () => {
       // すべてのIF条件が成立する(BEGINあり)
       const builder = new SQLBuilder();
@@ -545,6 +545,144 @@ describe('@/server/common/sql-builder.ts', () => {
           1 = 1
       `));
     });
+    it('generateSQL.004.007', () => {
+      // !!演算子(合致)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM items
+        WHERE
+          1 = 1
+          /*IF !!itemName*/AND name = /*itemName*/'name'/*END*/
+      `;
+      const bindEntity = {
+        itemName: 'itemname'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM items
+        WHERE
+          1 = 1
+          AND name = 'itemname'
+      `));
+    });
+    it('generateSQL.004.008', () => {
+      // !!演算子(非合致)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM items
+        WHERE
+          1 = 1
+          /*IF !!itemName*/AND name = /*itemName*/'name'/*END*/
+      `;
+      const bindEntity = {
+        itemName: ''
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM items
+        WHERE
+          1 = 1
+      `));
+    });
+    it('generateSQL.004.009', () => {
+      // !演算子(合致:空文字)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM items
+        WHERE
+          1 = 1
+          /*IF !itemName*/AND name = /*itemName*/'name'/*END*/
+      `;
+      const bindEntity = {
+        itemName: ''
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM items
+        WHERE
+          1 = 1
+          AND name = ''
+      `));
+    });
+    it('generateSQL.004.010', () => {
+      // !演算子(合致:null) => SQLとして不正なものになるがテスト対象とする
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM items
+        WHERE
+          1 = 1
+          /*IF !itemName*/AND name = /*itemName*/'name'/*END*/
+      `;
+      const bindEntity = {
+        itemName: null
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM items
+        WHERE
+          1 = 1
+          AND name =
+      `));
+    });
+    it('generateSQL.004.011', () => {
+      // !演算子(非合致)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM items
+        WHERE
+          1 = 1
+          /*IF !itemName*/AND name = /*itemName*/'name'/*END*/
+      `;
+      const bindEntity = {
+        itemName: 'itemname'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM items
+        WHERE
+          1 = 1
+      `));
+    });
+    it('generateSQL.004.012', () => {
+      // ?演算子(optional chaining)(合致)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM items
+        WHERE
+          1 = 1
+          /*IF itemName?.length*/AND name = /*itemName*/'name'/*END*/
+      `;
+      const bindEntity = {
+        itemName: 'itemname'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM items
+        WHERE
+          1 = 1
+          AND name = 'itemname'
+      `));
+    });
+    it('generateSQL.004.013', () => {
+      // ?演算子(optional chaining)(非合致)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM items
+        WHERE
+          1 = 1
+          /*IF itemName?.length*/AND name = /*itemName*/'name'/*END*/
+      `;
+      const bindEntity = {
+        itemName: null
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM items
+        WHERE
+          1 = 1
+      `));
+    });
+
     it('generateSQL.005.001', () => {
       // バインドパラメータがSQL関数内に存在するケース
       const builder = new SQLBuilder();
@@ -1539,24 +1677,42 @@ describe('@/server/common/sql-builder.ts', () => {
       `));
     });
 
-    it('generateSQL.099.001', () => {
-      // IF構文エラー (evaluating condition)
+    it('generateSQL.010.046', () => {
+      // IFにbooleanを利用する場合
       const builder = new SQLBuilder();
       const template = `
         SELECT * FROM user
         /*BEGIN*/WHERE
-          /*IF userId == 123 '12345'*/user_id = /*userId*/'x'/*END*/
+          1 = 1
+          /*IF created === true || created === false */ AND created = /* created */TRUE/*END*/
+          /*IF updated !== null */ AND updated = /* updated */TRUE/*END*/
+          /*IF verified === null */ AND verified IS NULL/*END*/
+          /*IF checked === true || checked === false*/ AND checked = /* checked *//*END*/
+          /*IF checked === null */ AND checked IS NULL/*END*/
         /*END*/
       `;
-      const entity = {
-        userId: '12345'
-      }
-      expect(() => builder.generateSQL(template, entity)).toThrow('Invalid expression:');
+      const bindEntity = {
+        created: true,
+        updated: false,
+        verified: null,
+        checked: undefined
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM user
+        WHERE
+          1 = 1
+          AND created = true
+          AND updated = false
+          AND verified IS NULL
+      `));
     });
+  });
 
+  describe('Normal Test Cases for generateParameterizedSQL', () => {
     it('generateParameterizedSQL.001.001', () => {
       // [postgresql] シンプルなパラメータの展開
-      const builder = new SQLBuilder();
+      const builder = new SQLBuilder('postgres');
       const template = `
         SELECT COUNT(*) AS cnt FROM activity
         WHERE
@@ -1571,7 +1727,7 @@ describe('@/server/common/sql-builder.ts', () => {
         verified: true,
         status: 1
       };
-      const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity, 'postgres');
+      const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity);
       expect(formatSQL(sql)).toBe(formatSQL(`
         SELECT COUNT(*) AS cnt FROM activity
         WHERE
@@ -1623,7 +1779,7 @@ describe('@/server/common/sql-builder.ts', () => {
     });
     it('generateParameterizedSQL.002.001', () => {
       // [mysql] シンプルなパラメータの展開
-      const builder = new SQLBuilder();
+      const builder = new SQLBuilder('mysql');
       const template = `
         SELECT COUNT(*) AS cnt FROM activity
         WHERE
@@ -1638,7 +1794,7 @@ describe('@/server/common/sql-builder.ts', () => {
         verified: true,
         status: 1
       };
-      const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity, 'mysql');
+      const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity);
       expect(formatSQL(sql)).toBe(formatSQL(`
         SELECT COUNT(*) AS cnt FROM activity
         WHERE
@@ -1690,7 +1846,7 @@ describe('@/server/common/sql-builder.ts', () => {
     });
     it('generateParameterizedSQL.003.001', () => {
       // [oracle] シンプルなパラメータの展開
-      const builder = new SQLBuilder();
+      const builder = new SQLBuilder('oracle');
       const template = `
         SELECT COUNT(*) AS cnt FROM activity
         WHERE
@@ -1705,7 +1861,7 @@ describe('@/server/common/sql-builder.ts', () => {
         verified: true,
         status: 1
       };
-      const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity, 'oracle');
+      const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity);
       expect(formatSQL(sql)).toBe(formatSQL(`
         SELECT COUNT(*) AS cnt FROM activity
         WHERE
@@ -1760,7 +1916,7 @@ describe('@/server/common/sql-builder.ts', () => {
     });
     it('generateParameterizedSQL.004.001', () => {
       // [mssql] シンプルなパラメータの展開
-      const builder = new SQLBuilder();
+      const builder = new SQLBuilder('mssql');
       const template = `
         SELECT COUNT(*) AS cnt FROM activity
         WHERE
@@ -1775,7 +1931,7 @@ describe('@/server/common/sql-builder.ts', () => {
         verified: true,
         status: 1
       };
-      const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity, 'mssql');
+      const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity);
       expect(formatSQL(sql)).toBe(formatSQL(`
         SELECT COUNT(*) AS cnt FROM activity
         WHERE
@@ -1828,7 +1984,76 @@ describe('@/server/common/sql-builder.ts', () => {
         statuses_1: 2
       });
     });
-
+    it('generateParameterizedSQL.005.001', () => {
+      // [bigquery] シンプルなパラメータの展開
+      const builder = new SQLBuilder('bigquery');
+      const template = `
+        SELECT COUNT(*) AS cnt FROM activity
+        WHERE
+          project_name = /*projectName*/'project1'
+          AND node_name = /*nodeName*/'node1'
+          AND verified = /*verified*/false
+          AND status = /*status*/0
+      `;
+      const bindEntity = {
+        projectName: 'pj1',
+        nodeName: 'node1',
+        verified: true,
+        status: 1
+      };
+      const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT COUNT(*) AS cnt FROM activity
+        WHERE
+          project_name = @projectName
+          AND node_name = @nodeName
+          AND verified = @verified
+          AND status = @status
+      `));
+      expect(bindParams).toEqual({
+        projectName: 'pj1',
+        nodeName: 'node1',
+        verified: true,
+        status: 1
+      });
+    });
+    it('generateParameterizedSQL.005.002', () => {
+      // [bigquery] IN句の展開
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT COUNT(*) AS cnt FROM activity
+        /*BEGIN*/WHERE
+          1 = 1
+          /*IF projectNames.length*/AND project_name IN /*projectNames*/('project1')/*END*/
+          /*IF nodeNames.length*/AND node_name IN /*nodeNames*/('node1')/*END*/
+          /*IF jobNames.length*/AND job_name IN /*jobNames*/('job1')/*END*/
+          /*IF statuses.length*/AND status IN /*statuses*/(1)/*END*/
+        /*END*/
+      `;
+      const bindEntity = {
+        projectNames: ['pj1', 'pj2'],
+        nodeNames: ['node1', 'node2'],
+        jobNames: [],
+        statuses: [1, 2]
+      };
+      const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity, 'bigquery');
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT COUNT(*) AS cnt FROM activity
+        WHERE
+          1 = 1
+          AND project_name IN (@projectNames_0,@projectNames_1)
+          AND node_name IN (@nodeNames_0,@nodeNames_1)
+          AND status IN (@statuses_0,@statuses_1)
+      `));
+      expect(bindParams).toEqual({
+        projectNames_0: 'pj1',
+        projectNames_1: 'pj2',
+        nodeNames_0: 'node1',
+        nodeNames_1: 'node2',
+        statuses_0: 1,
+        statuses_1: 2
+      });
+    });
 
     it('generateParameterizedSQL.010.001', () => {
       // INTERVALを使ったクエリ_1
@@ -1958,8 +2183,44 @@ describe('@/server/common/sql-builder.ts', () => {
         30
       ]);
     });
+  });
 
-    it('generateParameterizedSQL.099.001', () => {
+  describe('Special Edge Cases for generateSQL', () => {
+    it('generateSQL.080.001', () => {
+      // バインド変数の前後にスペースを含む書き方の場合(問題なくサポートできる)
+      // /*IF projectNames.length */
+      // /* projectNames */
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT COUNT(*) AS cnt FROM activity
+        WHERE
+          1 = 1
+          /*IF projectNames.length */ AND project_name IN /* projectNames */('project1') /*END*/
+          /*IF nodeNames.length */ AND node_name IN /* nodeNames */('node1') /*END*/
+          /*IF jobNames.length */ AND job_name IN /* jobNames */('job1') /*END*/
+          /*IF statuses.length */ AND status IN /* statuses */(1) /*END*/
+      `;
+      const bindEntity = {
+        projectNames: ['pj1', 'pj2'],
+        nodeNames: ['node1', 'node2'],
+        jobNames: ['job1', 'job2'],
+        statuses: [1, 2]
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT COUNT(*) AS cnt FROM activity
+        WHERE
+          1 = 1
+          AND project_name IN ('pj1','pj2')
+          AND node_name IN ('node1','node2')
+          AND job_name IN ('job1','job2')
+          AND status IN (1,2)
+      `));
+    });
+  });
+
+  describe('Special Edge Cases for generateParameterizedSQL', () => {
+    it('generateParameterizedSQL.080.001', () => {
       // バインドパラメータ中にカンマを含む場合
       const builder = new SQLBuilder();
       const template = `
@@ -1986,7 +2247,7 @@ describe('@/server/common/sql-builder.ts', () => {
         'aaa,bbb,ccc'
       ]);
     });
-    it('generateParameterizedSQL.099.002', () => {
+    it('generateParameterizedSQL.080.002', () => {
       // ダミーパラメータを含まない場合(推奨はしない書き方)
       const builder = new SQLBuilder();
       const template = `
@@ -2016,6 +2277,50 @@ describe('@/server/common/sql-builder.ts', () => {
         'aaa,bbb,ccc',
         '2025-07-05'
       ]);
+    });
+  });
+
+  describe('Negative Test Cases', () => {
+    it('generateSQL.099.001', () => {
+      // IF構文エラー (evaluating condition)
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF userId == 123 '12345'*/user_id = /*userId*/'x'/*END*/
+        /*END*/
+      `;
+      const entity = {
+        userId: '12345'
+      };
+      expect(() => builder.generateSQL(template, entity)).toThrow('Invalid expression:');
+    });
+    it('generateSQL.099.002', () => {
+      // 許容されない演算子
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM user
+        /*BEGIN*/WHERE
+          /*IF userId = 123*/user_id = /*userId*/'x'/*END*/
+        /*END*/
+      `;
+      const entity = {
+        userId: '12345'
+      };
+      expect(() => builder.generateSQL(template, entity)).toThrow('Unknown operator: =');
+    });
+    it('generateParameterizedSQL.099.001', () => {
+      // コンストラクター、SQL生成時のいずれにもbindTypeを指定しない場合
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM table
+        WHERE
+          user_id = /*userId*/0
+      `;
+      const bindEntity = {
+        userId: 12345
+      };
+      expect(() => builder.generateParameterizedSQL(template, bindEntity)).toThrow('The bindType parameter is mandatory if bindType is not provided in the constructor.');
     });
   });
 });

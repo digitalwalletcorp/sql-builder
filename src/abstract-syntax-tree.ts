@@ -1,7 +1,7 @@
 import * as common from './common';
 
 type Token =
-  | { type: 'IDENTIFIER'; value: string } // 例: param, length
+  | { type: 'IDENTIFIER'; value: string } // 例: param, length, param?.length
   | { type: 'OPERATOR'; value: string }   // 例: >, &&, ===, !=
   | { type: 'NUMBER'; value: number }     // 例: 100.123
   | { type: 'BOOLEAN'; value: boolean }   // 例: true, false
@@ -45,11 +45,9 @@ export class AbstractSyntaxTree {
    */
   public evaluateCondition(condition: string, entity: Record<string, any>): boolean {
     try {
-      // 一般的な条件チェックのルーチンをまとめて実施する
-      // 生成されたトークンに手を加えたい場合、各関数はpublicになっているので個別に呼び出し可能
-      const tokens = this.tokenize(condition); // トークン化
-      const rpnTokens = this.shuntingYard(tokens); // RPN変換
-      const result = this.evaluateRpn(rpnTokens, entity); // 評価
+      const tokens = this.tokenize(condition);
+      const rpnTokens = this.shuntingYard(tokens);
+      const result = this.evaluateRpn(rpnTokens, entity);
       return result;
     } catch (error: any) {
       error.condition = condition;
@@ -110,10 +108,6 @@ export class AbstractSyntaxTree {
           tokens.push({ type: 'OPERATOR', value: chunk1 });
           i += 1;
           continue;
-        // case '.':
-        //   tokens.push({ type: 'IDENTIFIER', value: chunk1 }); // '.'も識別子の一部として扱う
-        //   i += 1;
-        //   continue;
         case '(':
         case ')':
           tokens.push({ type: 'PARENTHESIS', value: chunk1 });
@@ -159,8 +153,9 @@ export class AbstractSyntaxTree {
         default:
       }
 
-      // 識別子 (変数名, true, false, null, undefined, length)
-      const identMatch = reststring.match(/^[a-zA-Z_][a-zA-Z0-9_.]*/); // ドットを含む識別子
+      // 識別子 (変数名, true, false, null, undefined, length, ?.を含むプロパティチェーン)
+      // ドットと疑問符を含んだプロパティチェーンを識別子としてパースする
+      const identMatch = reststring.match(/^[a-zA-Z_][a-zA-Z0-9_.]*(\?\.?[a-zA-Z0-9_]+)*/);
       if (identMatch) {
         const ident = identMatch[0];
         switch (ident) {
@@ -283,6 +278,7 @@ export class AbstractSyntaxTree {
           stack.push(token.value);
           break;
         case 'IDENTIFIER':
+          // オプショナルチェイニングを考慮したgetPropertyを呼び出す
           stack.push(common.getProperty(entity, token.value));
           break;
         case 'OPERATOR':
@@ -318,6 +314,7 @@ export class AbstractSyntaxTree {
     if (stack.length !== 1) {
       throw new Error(`Invalid expression: ${JSON.stringify(rpnTokens)}`);
     }
+    // undefinedやnullが返ってきた場合、falseと評価されるようにする
     return !!stack[0];
   }
 }

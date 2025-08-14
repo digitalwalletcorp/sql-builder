@@ -152,9 +152,22 @@ WHERE
 
 ### 📚 API Reference
 
-##### `new SQLBuilder()`
+##### `new SQLBuilder(bindType?: 'postgres' | 'mysql' | 'oracle' | 'mssql' | 'bigquery')`
 
 Creates a new instance of the SQL builder.
+
+The bindType parameter is optional. If provided in the constructor, you do not need to specify it again when calling generateParameterizedSQL. This is useful for projects that consistently use a single database type.
+
+**Note on `bindType` Mapping:**
+While `bindType` explicitly names PostgreSQL, MySQL, Oracle, SQL Server, and BigQuery the generated placeholder syntax is compatible with other SQL databases as follows:
+
+| `bindType` | Placeholder Syntax | Compatible Databases | Bind Parameter Type |
+| :------------- | :----------------- | :------------------- | :------------------ |
+| `postgres`     | `$1`, `$2`, ...    | **PostgreSQL** | `Array<any>`        |
+| `mysql`        | `?`, `?`, ...      | **MySQL**, **SQLite** (for unnamed parameters) | `Array<any>`        |
+| `oracle`       | `:name`, `:age`, ... | **Oracle**, **SQLite** (for named parameters) | `Record<string, any>` |
+| `mssql`        | `@name`, `@age`, ... | **SQL Server** (for named parameters) | `Record<string, any>` |
+| `bigquery`        | `@name`, `@age`, ... | **BigQuery** | `Record<string, any>` |
 
 ##### `generateSQL(template: string, entity: Record<string, any>): string`
 
@@ -164,7 +177,7 @@ Generates a final SQL string by processing the template with the provided data e
 * `entity`: A data object whose properties are used for evaluating conditions (`/*IF...*/`) and binding values (`/*variable*/`).
 * Returns: The generated SQL string.
 
-##### `generateParameterizedSQL(template: string, entity: Record<string, any>, bindType: 'postgres' | 'mysql' | 'oracle' | 'mssql'): [string, Array<any> | Record<string, any>]`
+##### `generateParameterizedSQL(template: string, entity: Record<string, any>, bindType?: 'postgres' | 'mysql' | 'oracle' | 'mssql'): [string, Array<any> | Record<string, any>]`
 
 Generates a SQL string with placeholders for prepared statements and returns an array of bind parameters. This method is crucial for preventing SQL injection.
 
@@ -172,19 +185,9 @@ Generates a SQL string with placeholders for prepared statements and returns an 
 * `entity`: A data object whose properties are used for evaluating conditions (`/*IF...*/`) and binding values.
 * `bindType`: Specifies the database type ('postgres', 'mysql', or 'oracle') to determine the correct placeholder syntax (`$1`, `?`, or `:name`).
 
-    **Note on `bindType` Mapping:**
-    While `bindType` explicitly names PostgreSQL, MySQL, Oracle, and SQL Server, the generated placeholder syntax is compatible with other SQL databases as follows:
-
-    | `bindType` | Placeholder Syntax | Compatible Databases | Bind Parameter Type |
-    | :------------- | :----------------- | :------------------- | :------------------ |
-    | `postgres`     | `$1`, `$2`, ...    | **PostgreSQL** | `Array<any>`        |
-    | `mysql`        | `?`, `?`, ...      | **MySQL**, **SQLite** (for unnamed parameters) | `Array<any>`        |
-    | `oracle`       | `:name`, `:age`, ... | **Oracle**, **SQLite** (for named parameters) | `Record<string, any>` |
-    | `mssql`        | `@name`, `@age`, ... | **SQL Server** (for named parameters) | `Record<string, any>` |
-
 * Returns: A tuple `[sql, bindParams]`.
-    * `sql`: The generated SQL query with appropriate placeholders.
-    * `bindParams`: An array of values (for PostgreSQL/MySQL) or an object of named values (for Oracle/SQL Server) to bind to the placeholders.
+* `sql`: The generated SQL query with appropriate placeholders.
+* `bindParams`: An array of values (for PostgreSQL/MySQL) or an object of named values (for Oracle/SQL Server) to bind to the placeholders.
 
 ##### Example 3: Parameterized SQL with PostgreSQL
 

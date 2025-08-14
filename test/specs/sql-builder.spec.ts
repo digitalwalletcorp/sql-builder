@@ -2024,10 +2024,10 @@ describe('@/server/common/sql-builder.ts', () => {
         SELECT COUNT(*) AS cnt FROM activity
         /*BEGIN*/WHERE
           1 = 1
-          /*IF projectNames.length*/AND project_name IN /*projectNames*/('project1')/*END*/
-          /*IF nodeNames.length*/AND node_name IN /*nodeNames*/('node1')/*END*/
-          /*IF jobNames.length*/AND job_name IN /*jobNames*/('job1')/*END*/
-          /*IF statuses.length*/AND status IN /*statuses*/(1)/*END*/
+          /*IF projectNames.length*/AND project_name IN /*projectNames*/(['project1','project2'])/*END*/
+          /*IF nodeNames.length*/AND node_name IN /*nodeNames*/(['node1'])/*END*/
+          /*IF jobNames.length*/AND job_name IN /*jobNames*/(['job1'])/*END*/
+          /*IF statuses.length*/AND status IN /*statuses*/([1])/*END*/
         /*END*/
       `;
       const bindEntity = {
@@ -2041,17 +2041,14 @@ describe('@/server/common/sql-builder.ts', () => {
         SELECT COUNT(*) AS cnt FROM activity
         WHERE
           1 = 1
-          AND project_name IN (@projectNames_0,@projectNames_1)
-          AND node_name IN (@nodeNames_0,@nodeNames_1)
-          AND status IN (@statuses_0,@statuses_1)
+          AND project_name IN (@projectNames)
+          AND node_name IN (@nodeNames)
+          AND status IN (@statuses)
       `));
       expect(bindParams).toEqual({
-        projectNames_0: 'pj1',
-        projectNames_1: 'pj2',
-        nodeNames_0: 'node1',
-        nodeNames_1: 'node2',
-        statuses_0: 1,
-        statuses_1: 2
+        projectNames: ['pj1', 'pj2'],
+        nodeNames: ['node1', 'node2'],
+        statuses: [1, 2]
       });
     });
 

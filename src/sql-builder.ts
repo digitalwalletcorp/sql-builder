@@ -429,9 +429,8 @@ export class SQLBuilder {
               }
               break;
             }
-            case 'mssql':
-            case 'bigquery': {
-              // SQL Server/BigQuery形式の場合、名前付きバインドでバインドパラメータを展開
+            case 'mssql': {
+              // SQL Server形式の場合、名前付きバインドでバインドパラメータを展開
               if (Array.isArray(value)) {
                 const placeholders: string[] = [];
                 for (let i = 0; i < value.length; i++) {
@@ -445,6 +444,16 @@ export class SQLBuilder {
                 result += `@${tagContext.contents}`;
                 (options.bindParams as Record<string, any>)[tagContext.contents] = value;
               }
+              break;
+            }
+            case 'bigquery': {
+              // BigQuery形式の場合、名前付きバインドでバインドパラメータを展開
+              if (Array.isArray(value)) {
+                result += `(@${tagContext.contents})`; // IN (@params)
+              } else {
+                result += `@${tagContext.contents}`;
+              }
+              (options.bindParams as Record<string, any>)[tagContext.contents] = value;
               break;
             }
             default: {

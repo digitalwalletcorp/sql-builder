@@ -449,7 +449,8 @@ export class SQLBuilder {
             case 'bigquery': {
               // BigQuery形式の場合、名前付きバインドでバインドパラメータを展開
               if (Array.isArray(value)) {
-                result += `(@${tagContext.contents})`; // IN (@params)
+                // UNNESTを付けないとBigQuery側で正しく配列展開できないケースがある
+                result += `UNNEST(@${tagContext.contents})`; // IN UNNEST(@params)
               } else {
                 result += `@${tagContext.contents}`;
               }

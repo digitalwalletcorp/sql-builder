@@ -2041,9 +2041,9 @@ describe('@/server/common/sql-builder.ts', () => {
         SELECT COUNT(*) AS cnt FROM activity
         WHERE
           1 = 1
-          AND project_name IN (@projectNames)
-          AND node_name IN (@nodeNames)
-          AND status IN (@statuses)
+          AND project_name IN UNNEST(@projectNames)
+          AND node_name IN UNNEST(@nodeNames)
+          AND status IN UNNEST(@statuses)
       `));
       expect(bindParams).toEqual({
         projectNames: ['pj1', 'pj2'],

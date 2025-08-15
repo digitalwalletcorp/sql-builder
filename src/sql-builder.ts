@@ -497,7 +497,7 @@ export class SQLBuilder {
             // 丸括弧終了
             return i + 1;
           case c === '\n':
-            throw new Error(`括弧が閉じられていません [${i}]`);
+            throw new Error(`括弧が閉じられていません [index: ${i}, subsequence: '${template.substring(Math.max(i - 20, 0), i + 20)}']`);
           default:
         }
       } else if (quoted) {
@@ -507,7 +507,7 @@ export class SQLBuilder {
             // クォート終了
             return i + 1;
           case c === '\n':
-            throw new Error(`クォートが閉じられていません [${i}]`);
+            throw new Error(`クォートが閉じられていません [index: ${i}, subsequence: '${template.substring(Math.max(i - 20, 0), i + 20)}']`);
           default:
         }
       } else {
@@ -521,7 +521,7 @@ export class SQLBuilder {
             bracket = true;
             break;
           case c === ')':
-            throw new Error(`括弧が開始されていません [${i}]`);
+            throw new Error(`括弧が開始されていません [index: ${i}, subsequence: '${template.substring(Math.max(i - 20, 0), i + 20)}']`);
           case c === '*' && 1 < i && chars[i - 1] === '/':
             // 次ノード開始
             return i - 1;

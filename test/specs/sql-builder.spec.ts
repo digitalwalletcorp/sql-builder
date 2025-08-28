@@ -710,6 +710,7 @@ describe('@/server/common/sql-builder.ts', () => {
           AND modified_at < CAST('2025-01-01T15:00:00.000+00:00' AS timestamp with time zone)
       `));
     });
+
     it('generateSQL.006.001', () => {
       // シングルクォートのエスケープ
       const builder = new SQLBuilder();
@@ -1707,6 +1708,70 @@ describe('@/server/common/sql-builder.ts', () => {
           AND verified IS NULL
       `));
     });
+
+    it('generateSQL.011.001', () => {
+      // IFで生成されるSQLに括弧を含むケース
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM activity
+        WHERE
+          1 = 1
+          /*IF region == 'JP' || region == 'JPTR'*/AND (region IS NOT NULL OR region = /*region*/'XX')/*END*/
+          /*IF region == 'CA'*/AND region = /*region*/'XX'/*END*/
+      `;
+      const bindEntity = {
+        region: 'JP'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM activity
+        WHERE
+          1 = 1
+          AND (region IS NOT NULL OR region = 'JP')
+      `));
+    });
+    it('generateSQL.011.002', () => {
+      // IFで生成されるSQLに括弧を含むケース
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM activity
+        WHERE
+          1 = 1
+          /*IF region == 'JP' || region == 'JPTR'*/AND (region IS NOT NULL OR region = /*region*/'XX')/*END*/
+          /*IF region == 'CA'*/AND region = /*region*/'XX'/*END*/
+      `;
+      const bindEntity = {
+        region: 'JPTR'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM activity
+        WHERE
+          1 = 1
+          AND (region IS NOT NULL OR region = 'JPTR')
+      `));
+    });
+    it('generateSQL.011.003', () => {
+      // IFで生成されるSQLに括弧を含むケース
+      const builder = new SQLBuilder();
+      const template = `
+        SELECT * FROM activity
+        WHERE
+          1 = 1
+          /*IF region == 'JP' || region == 'JPTR'*/AND (region IS NOT NULL OR region = /*region*/'XX')/*END*/
+          /*IF region != 'JP' && region != 'JPTR'*/AND region = /*region*/'XX'/*END*/
+      `;
+      const bindEntity = {
+        region: 'CA'
+      };
+      const sql = builder.generateSQL(template, bindEntity);
+      expect(formatSQL(sql)).toBe(formatSQL(`
+        SELECT * FROM activity
+        WHERE
+          1 = 1
+          AND region = 'CA'
+      `));
+    });
   });
 
   describe('Normal Test Cases for generateParameterizedSQL', () => {
@@ -2010,12 +2075,12 @@ describe('@/server/common/sql-builder.ts', () => {
           AND verified = @verified
           AND status = @status
       `));
-      expect(bindParams).toEqual({
-        projectName: 'pj1',
-        nodeName: 'node1',
-        verified: true,
-        status: 1
-      });
+      expect(bindParams).toEqual([
+        { name: 'projectName', parameterValue: { value: 'pj1' } },
+        { name: 'nodeName', parameterValue: { value: 'node1' } },
+        { name: 'verified', parameterValue: { value: true } },
+        { name: 'status', parameterValue: { value: 1 } }
+      ]);
     });
     it('generateParameterizedSQL.005.002', () => {
       // [bigquery] IN句の展開
@@ -2045,11 +2110,11 @@ describe('@/server/common/sql-builder.ts', () => {
           AND node_name IN UNNEST(@nodeNames)
           AND status IN UNNEST(@statuses)
       `));
-      expect(bindParams).toEqual({
-        projectNames: ['pj1', 'pj2'],
-        nodeNames: ['node1', 'node2'],
-        statuses: [1, 2]
-      });
+      expect(bindParams).toEqual([
+        { name: 'projectNames', parameterValue: { value: ['pj1', 'pj2'] } },
+        { name: 'nodeNames', parameterValue: { value: ['node1', 'node2'] } },
+        { name: 'statuses', parameterValue: { value: [1, 2] } }
+      ]);
     });
 
     it('generateParameterizedSQL.010.001', () => {

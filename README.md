@@ -167,7 +167,7 @@ While `bindType` explicitly names PostgreSQL, MySQL, Oracle, SQL Server, and Big
 | `mysql`        | `?`, `?`, ...      | **MySQL**, **SQLite** (for unnamed parameters) | `Array<any>`        |
 | `oracle`       | `:name`, `:age`, ... | **Oracle**, **SQLite** (for named parameters) | `Record<string, any>` |
 | `mssql`        | `@name`, `@age`, ... | **SQL Server** (for named parameters) | `Record<string, any>` |
-| `bigquery`        | `@name`, `@age`, ... | **BigQuery** | `Record<string, any>` |
+| `bigquery`        | `@name`, `@age`, ... | **BigQuery** | `Array<string, { name: string, parameterType: { type: string }, parameterValue: { value: any }}>` |
 
 ##### `generateSQL(template: string, entity: Record<string, any>): string`
 

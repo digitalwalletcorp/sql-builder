@@ -15,7 +15,7 @@ type ExtractValueType<T extends 'string' | 'array' | 'object'>
  * SQLite: ?, $name, :name 配列またはオブジェクト
  * Oracle: :name オブジェクト
  * SQL Server: `@name` 配列またはオブジェクト
- * BigQuery: `@name` オブジェクト
+ * BigQuery: `@name` オブジェクトの配列
  *
  * 以下をサポートする
  * ・$1, $2 (postgres)
@@ -34,11 +34,16 @@ const dbTypes = [
 
 type BindType = typeof dbTypes[number];
 
+// BigQueryのライブラリと依存を持ちたくないのでここで定義
+type BigQueryParameterType = { type: 'STRING' | 'INT64' | 'FLOAT64' | 'BOOL' | 'DATE' | 'DATETIME' | 'TIMESTAMP' | 'ARRAY' | 'STRUCT' };
+type BigQueryParameterTypeValue = { name: string, parameterType?: BigQueryParameterType, parameterValue: { value: any } };
+
 type BindParameterType<T extends BindType>
   = T extends 'postgres' ? any[]
   : T extends 'mysql' ? any[]
   : T extends 'oracle' ? Record<string, any>
   : T extends 'mssql' ? Record<string, any>
+  : T extends 'bigquery' ? BigQueryParameterTypeValue[]
   : undefined;
 
 interface TagContext {
@@ -153,8 +158,10 @@ export class SQLBuilder {
         break;
       case 'oracle':
       case 'mssql':
-      case 'bigquery':
         bindParams = {} as BindParameterType<T>;
+        break;
+      case 'bigquery':
+        bindParams = [] as unknown as BindParameterType<T>;
         break;
       default:
         throw new Error(`Unsupported bind type: ${bt}`);
@@ -454,7 +461,17 @@ export class SQLBuilder {
               } else {
                 result += `@${tagContext.contents}`;
               }
-              (options.bindParams as Record<string, any>)[tagContext.contents] = value;
+              (options.bindParams as BigQueryParameterTypeValue[]).push({
+                name: tagContext.contents,
+                // パラメータ型の指定はなくても、引数の型が適切であればBigQueryが推論してくれるようである
+                // TODO: SQLBuilderでカラム型を含めて返せるようにするか、呼び出し元で必要に応じて追加してもらうか、方式を検討する
+                // parameterType: {
+                //   type: type
+                // },
+                parameterValue: {
+                  value: value
+                }
+              });
               break;
             }
             default: {

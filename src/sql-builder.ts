@@ -15,14 +15,12 @@ type ExtractValueType<T extends 'string' | 'array' | 'object'>
  * SQLite: ?, $name, :name 配列またはオブジェクト
  * Oracle: :name オブジェクト
  * SQL Server: `@name` 配列またはオブジェクト
- * BigQuery: `@name` オブジェクトの配列
  *
  * 以下をサポートする
  * ・$1, $2 (postgres)
  * ・? (mysql) SQLite, SQL Serverもこれで代替可能
  * ・:name (oracle) SQLiteもこれで代替可能
  * ・`@name` (mssql)
- * ・`@name` (bigquery)
  */
 const dbTypes = [
   'postgres',
@@ -32,10 +30,6 @@ const dbTypes = [
 ] as const;
 
 type BindType = typeof dbTypes[number];
-
-// BigQueryのライブラリと依存を持ちたくないのでここで定義
-type BigQueryParameterType = { type: 'STRING' | 'INT64' | 'FLOAT64' | 'BOOL' | 'DATE' | 'DATETIME' | 'TIMESTAMP' | 'ARRAY' | 'STRUCT' };
-type BigQueryParameterTypeValue = { name: string, parameterType?: BigQueryParameterType, parameterValue: { value: any } };
 
 type BindParameterType<T extends BindType>
   = T extends 'postgres' ? any[]

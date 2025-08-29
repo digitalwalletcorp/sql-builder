@@ -159,7 +159,7 @@ Creates a new instance of the SQL builder.
 The bindType parameter is optional. If provided in the constructor, you do not need to specify it again when calling generateParameterizedSQL. This is useful for projects that consistently use a single database type.
 
 **Note on `bindType` Mapping:**
-While `bindType` explicitly names PostgreSQL, MySQL, Oracle, SQL Server, and BigQuery the generated placeholder syntax is compatible with other SQL databases as follows:
+While `bindType` explicitly names PostgreSQL, MySQL, Oracle and SQL Server the generated placeholder syntax is compatible with other SQL databases as follows:
 
 | `bindType` | Placeholder Syntax | Compatible Databases | Bind Parameter Type |
 | :------------- | :----------------- | :------------------- | :------------------ |

@@ -152,7 +152,7 @@ WHERE
 
 ### 📚 API Reference
 
-##### `new SQLBuilder(bindType?: 'postgres' | 'mysql' | 'oracle' | 'mssql' | 'bigquery')`
+##### `new SQLBuilder(bindType?: 'postgres' | 'mysql' | 'oracle' | 'mssql')`
 
 Creates a new instance of the SQL builder.
 
@@ -167,7 +167,6 @@ While `bindType` explicitly names PostgreSQL, MySQL, Oracle, SQL Server, and Big
 | `mysql`        | `?`, `?`, ...      | **MySQL**, **SQLite** (for unnamed parameters) | `Array<any>`        |
 | `oracle`       | `:name`, `:age`, ... | **Oracle**, **SQLite** (for named parameters) | `Record<string, any>` |
 | `mssql`        | `@name`, `@age`, ... | **SQL Server** (for named parameters) | `Record<string, any>` |
-| `bigquery`        | `@name`, `@age`, ... | **BigQuery** | `Array<string, { name: string, parameterType: { type: string }, parameterValue: { value: any }}>` |
 
 ##### `generateSQL(template: string, entity: Record<string, any>): string`
 

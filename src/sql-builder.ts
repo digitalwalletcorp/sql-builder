@@ -28,8 +28,7 @@ const dbTypes = [
   'postgres',
   'mysql',
   'oracle',
-  'mssql',
-  'bigquery'
+  'mssql'
 ] as const;
 
 type BindType = typeof dbTypes[number];
@@ -43,7 +42,6 @@ type BindParameterType<T extends BindType>
   : T extends 'mysql' ? any[]
   : T extends 'oracle' ? Record<string, any>
   : T extends 'mssql' ? Record<string, any>
-  : T extends 'bigquery' ? BigQueryParameterTypeValue[]
   : undefined;
 
 interface TagContext {
@@ -159,9 +157,6 @@ export class SQLBuilder {
       case 'oracle':
       case 'mssql':
         bindParams = {} as BindParameterType<T>;
-        break;
-      case 'bigquery':
-        bindParams = [] as unknown as BindParameterType<T>;
         break;
       default:
         throw new Error(`Unsupported bind type: ${bt}`);
@@ -451,27 +446,6 @@ export class SQLBuilder {
                 result += `@${tagContext.contents}`;
                 (options.bindParams as Record<string, any>)[tagContext.contents] = value;
               }
-              break;
-            }
-            case 'bigquery': {
-              // BigQuery形式の場合、名前付きバインドでバインドパラメータを展開
-              if (Array.isArray(value)) {
-                // UNNESTを付けないとBigQuery側で正しく配列展開できないケースがある
-                result += `UNNEST(@${tagContext.contents})`; // IN UNNEST(@params)
-              } else {
-                result += `@${tagContext.contents}`;
-              }
-              (options.bindParams as BigQueryParameterTypeValue[]).push({
-                name: tagContext.contents,
-                // パラメータ型の指定はなくても、引数の型が適切であればBigQueryが推論してくれるようである
-                // TODO: SQLBuilderでカラム型を含めて返せるようにするか、呼び出し元で必要に応じて追加してもらうか、方式を検討する
-                // parameterType: {
-                //   type: type
-                // },
-                parameterValue: {
-                  value: value
-                }
-              });
               break;
             }
             default: {

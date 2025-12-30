@@ -304,21 +304,18 @@ describe('@/server/common/sql-builder.ts', () => {
         `));
       });
       it('generateSQL.syntax.102', () => {
-        // 未定義のタグ記載時 => /*variable*/とみなされる
+        // 未定義のタグ記載時 => 構文不正とみなしてエラーを返す
         const builder = new SQLBuilder();
         const template = `
           SELECT * FROM activity
           WHERE
             1 = 1
-            /*UNKNOWN_TAG*/
+            AND name = /*UNKNOWN_TAG*/
         `;
         const bindEntity = {};
-        const sql = builder.generateSQL(template, bindEntity);
-        expect(formatSQL(sql)).toBe(formatSQL(`
-          SELECT * FROM activity
-          WHERE
-            1 = 1
-        `));
+        expect(() => {
+          builder.generateSQL(template, bindEntity);
+        }).toThrow(`[SQLBuilder] The property "UNKNOWN_TAG" is not found in the bind entity. (Template index: 91)`);
       });
       it('generateSQL.syntax.103', () => {
         // バインドパラメータがSQL関数内に存在するケース

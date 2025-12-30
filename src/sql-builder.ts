@@ -139,7 +139,7 @@ export class SQLBuilder {
     const bt = bindType || this.bindType;
 
     if (!bt) {
-      throw new Error('The bindType parameter is mandatory if bindType is not provided in the constructor.');
+      throw new Error('[SQLBuilder] The bindType parameter is mandatory if bindType is not provided in the constructor.');
     }
 
     let bindParams: BindParameterType<T>;
@@ -153,7 +153,7 @@ export class SQLBuilder {
         bindParams = {} as BindParameterType<T>;
         break;
       default:
-        throw new Error(`Unsupported bind type: ${bt}`);
+        throw new Error(`[SQLBuilder] Unsupported bind type: ${bt}`);
     }
 
     /**
@@ -394,8 +394,8 @@ export class SQLBuilder {
           // ★ UNKNOWN_TAG 判定
           const hasProperty = Object.prototype.hasOwnProperty.call(entity, tagContext.contents);
           if (!hasProperty) {
-            // UNKNOWN_TAG → 何も出力しない
-            break;
+            // UNKNOWN_TAG → エラーを発行
+            throw new Error(`[SQLBuilder] The property "${tagContext.contents}" is not found in the bind entity. (Template index: ${tagContext.startIndex})`);
           }
           const rawValue = common.getProperty(entity, tagContext.contents);
           const value = rawValue === undefined ? null : rawValue;
@@ -490,7 +490,7 @@ export class SQLBuilder {
    */
   private getDummyParamEndIndex(template: string, tagContext: TagContext): number {
     if (tagContext.type !== 'BIND') {
-      throw new Error(`${tagContext.type} に対してgetDummyParamEndIndexが呼び出されました`);
+      throw new Error(`[SQLBuilder] ${tagContext.type} に対してgetDummyParamEndIndexが呼び出されました`);
     }
     let quoted = false;
     let bracket = false;
@@ -504,7 +504,7 @@ export class SQLBuilder {
             // 丸括弧終了
             return i + 1;
           case c === '\n':
-            throw new Error(`括弧が閉じられていません [index: ${i}, subsequence: '${template.substring(Math.max(i - 20, 0), i + 20)}']`);
+            throw new Error(`[SQLBuilder] 括弧が閉じられていません [index: ${i}, subsequence: '${template.substring(Math.max(i - 20, 0), i + 20)}']`);
           default:
         }
       } else if (quoted) {
@@ -514,7 +514,7 @@ export class SQLBuilder {
             // クォート終了
             return i + 1;
           case c === '\n':
-            throw new Error(`クォートが閉じられていません [index: ${i}, subsequence: '${template.substring(Math.max(i - 20, 0), i + 20)}']`);
+            throw new Error(`[SQLBuilder] クォートが閉じられていません [index: ${i}, subsequence: '${template.substring(Math.max(i - 20, 0), i + 20)}']`);
           default:
         }
       } else {
@@ -528,7 +528,7 @@ export class SQLBuilder {
             bracket = true;
             break;
           case c === ')':
-            throw new Error(`括弧が開始されていません [index: ${i}, subsequence: '${template.substring(Math.max(i - 20, 0), i + 20)}']`);
+            throw new Error(`[SQLBuilder] 括弧が開始されていません [index: ${i}, subsequence: '${template.substring(Math.max(i - 20, 0), i + 20)}']`);
           case c === '*' && 1 < i && chars[i - 1] === '/':
             // 次ノード開始
             return i - 1;

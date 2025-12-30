@@ -129,6 +129,43 @@ describe('@/server/common/sql-builder.ts', () => {
           SELECT COUNT(*) AS cnt FROM activity
         `));
       });
+      it('generateSQL.typical.005', () => {
+        // NULL値のバインド
+        const builder = new SQLBuilder();
+        const template = `
+          INSERT INTO users (
+            user_id,
+            user_name,
+            email,
+            age
+          ) VALUES (
+            /*userId*/0,
+            /*userName*/'anonymous',
+            /*email*/'dummy@example.com',
+            /*age*/0
+          )
+        `;
+        const bindEntity = {
+          userId: 1001,
+          userName: 'Alice',
+          email: undefined,
+          age: null
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          INSERT INTO users (
+            user_id,
+            user_name,
+            email,
+            age
+          ) VALUES (
+            1001,
+            'Alice',
+            NULL,
+            NULL
+          )
+        `));
+      });
     });
 
     describe('Syntax Test Cases', () => {
@@ -207,6 +244,46 @@ describe('@/server/common/sql-builder.ts', () => {
         `));
       });
       it('generateSQL.syntax.004', () => {
+        // FORのコレクションが null の場合は何も展開されない
+        const builder = new SQLBuilder();
+        const template = `
+          SELECT * FROM activity
+          /*BEGIN*/WHERE
+            1 = 1
+            /*FOR name:projectNames*/AND project_name LIKE '%' || /*name*/'aaa' || '%'/*END*/
+          /*END*/
+        `;
+        const bindEntity = {
+          projectNames: null
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT * FROM activity
+        `));
+      });
+      it('generateSQL.syntax.005', () => {
+        // FORのコレクションが undefined の場合は何も展開されない
+        const builder = new SQLBuilder();
+        const template = `
+          SELECT * FROM activity
+          /*BEGIN*/WHERE
+            1 = 1
+            /*FOR name:projectNames*/AND project_name LIKE '%' || /*name*/'aaa' || '%'/*END*/
+            /*IF status != null*/AND status = /*status*/1/*END*/
+          /*END*/
+        `;
+        const bindEntity = {
+          status: 10
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT * FROM activity
+          WHERE
+            1 = 1
+            AND status = 10
+        `));
+      });
+      it('generateSQL.syntax.101', () => {
         // 条件の後にバインドパラメータなし
         const builder = new SQLBuilder();
         const template = `
@@ -226,7 +303,7 @@ describe('@/server/common/sql-builder.ts', () => {
             AND NOW() - INTERVAL 1 days <= modified_at
         `));
       });
-      it('generateSQL.syntax.005', () => {
+      it('generateSQL.syntax.102', () => {
         // 未定義のタグ記載時 => /*variable*/とみなされる
         const builder = new SQLBuilder();
         const template = `
@@ -243,7 +320,7 @@ describe('@/server/common/sql-builder.ts', () => {
             1 = 1
         `));
       });
-      it('generateSQL.syntax.006', () => {
+      it('generateSQL.syntax.103', () => {
         // バインドパラメータがSQL関数内に存在するケース
         const builder = new SQLBuilder();
         const template = `
@@ -270,7 +347,7 @@ describe('@/server/common/sql-builder.ts', () => {
             AND modified_at < CAST('2025-01-01T15:00:00.000+00:00' AS timestamp with time zone)
         `));
       });
-      it('generateSQL.syntax.007', () => {
+      it('generateSQL.syntax.104', () => {
         // バインド変数の前後にスペースを含む書き方の場合(問題なくサポートできる)
         // /*IF projectNames.length */
         // /* projectNames */
@@ -301,7 +378,86 @@ describe('@/server/common/sql-builder.ts', () => {
             AND status IN (1,2)
         `));
       });
-      it('generateSQL.syntax.008', () => {
+      it('generateSQL.syntax.105', () => {
+        // IFの単純なネストを含む構文
+        const countSqlTemplate = `
+          SELECT
+            COUNT(*) AS "cnt"
+          FROM activity
+          WHERE
+            1 = 1
+            /*IF status == 10*/
+              /*IF jobNames != null && jobNames.length*/AND job_names IN /*jobNames*/('jobname')/*END*/
+            /*END*/
+        `;
+        const bindEntity = {
+          status: 10,
+          jobNames: ['job1', 'job2']
+        };
+        const builder = new SQLBuilder('postgres');
+        const sql = builder.generateSQL(countSqlTemplate, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT
+            COUNT(*) AS "cnt"
+          FROM activity
+          WHERE
+            1 = 1
+            AND job_names IN ('job1','job2')
+        `));
+      });
+      it('generateSQL.syntax.106', () => {
+        // IFの単純なネストを含む構文(上位のIFでfalse判定)
+        const countSqlTemplate = `
+          SELECT
+            COUNT(*) AS "cnt"
+          FROM activity
+          WHERE
+            1 = 1
+            /*IF status == 10*/
+              /*IF jobNames != null && jobNames.length*/AND job_names IN /*jobNames*/('jobname')/*END*/
+            /*END*/
+        `;
+        const bindEntity = {
+          status: 9,
+          jobNames: ['job1', 'job2']
+        };
+        const builder = new SQLBuilder('postgres');
+        const sql = builder.generateSQL(countSqlTemplate, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT
+            COUNT(*) AS "cnt"
+          FROM activity
+          WHERE
+            1 = 1
+        `));
+      });
+      it('generateSQL.syntax.107', () => {
+        // IFの単純なネストを含む構文(下位のIFでfalse判定)
+        const countSqlTemplate = `
+          SELECT
+            COUNT(*) AS "cnt"
+          FROM activity
+          WHERE
+            1 = 1
+            /*IF status == 10*/
+              /*IF jobNames != null && jobNames.length*/AND job_names IN /*jobNames*/('jobname')/*END*/
+            /*END*/
+        `;
+        const bindEntity = {
+          status: 10,
+          jobNames: []
+        };
+        const builder = new SQLBuilder('postgres');
+        const sql = builder.generateSQL(countSqlTemplate, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT
+            COUNT(*) AS "cnt"
+          FROM activity
+          WHERE
+            1 = 1
+        `));
+      });
+      it('generateSQL.syntax.108', () => {
         // BEGEIN・IFのネストを含む構文
         const countSqlTemplate = `
           SELECT
@@ -350,7 +506,7 @@ describe('@/server/common/sql-builder.ts', () => {
             )
         `));
       });
-      it('generateSQL.syntax.009', () => {
+      it('generateSQL.syntax.109', () => {
         // ダミーパラメータを含まない場合(推奨はしない書き方)
         const builder = new SQLBuilder();
         const template = `
@@ -531,7 +687,7 @@ describe('@/server/common/sql-builder.ts', () => {
         `));
       });
       it('generateSQL.operator.008', () => {
-        // !演算子(合致:null) => SQLとして不正なものになるがテスト対象とする
+        // !演算子(合致:null) => NULLが設定されるが、本来IS NULLになるようにテンプレートを作成すべきもの
         const builder = new SQLBuilder();
         const template = `
           SELECT * FROM items
@@ -547,7 +703,7 @@ describe('@/server/common/sql-builder.ts', () => {
           SELECT * FROM items
           WHERE
             1 = 1
-            AND name =
+            AND name = NULL
         `));
       });
       it('generateSQL.operator.009', () => {
@@ -1911,6 +2067,47 @@ describe('@/server/common/sql-builder.ts', () => {
             'pj1', 'pj2',
             'node1', 'node2',
             1, 2
+          ]);
+        });
+        it('generateParameterizedSQL.typical.postgresql.003', () => {
+          // NULL値のバインド
+          const builder = new SQLBuilder();
+          const template = `
+            INSERT INTO users (
+              user_id,
+              user_name,
+              email,
+              age
+            ) VALUES (
+              /*userId*/0,
+              /*userName*/'anonymous',
+              /*email*/'dummy@example.com',
+              /*age*/0
+            )
+          `;
+          const bindEntity = {
+            userId: 1001,
+            userName: 'Alice',
+            email: undefined,
+            age: null
+          };
+          const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity, 'postgres');
+          expect(formatSQL(sql)).toBe(formatSQL(`
+            INSERT INTO users (
+              user_id,
+              user_name,
+              email,
+              age
+            ) VALUES (
+              $1,
+              $2,
+              $3,
+              $4
+            )
+          `));
+          expect(bindParams).toEqual([
+            1001, 'Alice',
+            null, null
           ]);
         });
       });

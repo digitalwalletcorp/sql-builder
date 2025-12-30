@@ -319,7 +319,13 @@ export class SQLBuilder {
           result += template.substring(pos.index, tagContext.startIndex);
           pos.index = tagContext.endIndex;
           // BEGINのときは無条件にsubに対して再帰呼び出し
-          result += this.parse(pos, template, entity, tagContext.sub, options);
+          const beginBlockResult = this.parse(pos, template, entity, tagContext.sub, options);
+          // BEGIN内のIF、FORのいずれかで成立したものがあった場合は結果を出力
+          if (tagContext.sub.some(sub =>
+            (sub.type === 'IF' || sub.type === 'FOR') && sub.status === 10
+          )) {
+            result += beginBlockResult;
+          }
           break;
         }
         case 'IF': {
@@ -327,7 +333,8 @@ export class SQLBuilder {
           pos.index = tagContext.endIndex;
           if (this.evaluateCondition(tagContext.contents, entity)) {
             // IF条件が成立する場合はsubに対して再帰呼び出し
-            tagContext.status = 10;
+            tagContext.status = 10; // 成立(→/*BEGIN*/を使っている場合の判定条件になる)
+            // IFの結果自体は他の要素に影響されないので直接resultに還元可能
             result += this.parse(pos, template, entity, tagContext.sub, options);
           } else {
             // IF条件が成立しない場合は再帰呼び出しせず、subのENDタグのendIndexをposに設定
@@ -337,15 +344,16 @@ export class SQLBuilder {
           break;
         }
         case 'FOR': {
+          result += template.substring(pos.index, tagContext.startIndex);
+          pos.index = tagContext.endIndex;
           const [bindName, collectionName] = tagContext.contents.split(':').map(a => a.trim());
-          const array = this.extractValue(collectionName, entity, {
-            responseType: 'array'
-          });
-          if (array) {
-            result += template.substring(pos.index, tagContext.startIndex);
+          const array = common.getProperty(entity, collectionName);
+          if (Array.isArray(array) && array.length) {
+            tagContext.status = 10; // 成立(→/*BEGIN*/を使っている場合の判定条件になる)
             for (const value of array) {
               // 再帰呼び出しによりposが進むので、ループのたびにposを戻す必要がある
               pos.index = tagContext.endIndex;
+              // FORの結果自体は他の要素に影響されないので直接resultに還元可能
               result += this.parse(pos, template, {
                 ...entity,
                 [bindName]: value
@@ -353,18 +361,26 @@ export class SQLBuilder {
               // FORループするときは各行で改行する
               result += '\n';
             }
+          } else {
+            // FORブロックを丸ごとスキップ
+            const endTagContext = tagContext.sub[tagContext.sub.length - 1];
+            pos.index = endTagContext.endIndex;
           }
           break;
         }
         case 'END': {
           // 2025-04-13 現時点ではBEGINやIFがネストされた場合について期待通りに動作しない
           switch (true) {
-            // BEGINの場合、subにIFタグが1つ以上あり、いずれもstatus=10(成功)になっていない
             case tagContext.parent?.type === 'BEGIN'
-              && !!tagContext.parent.sub.find(a => a.type === 'IF')
-              && !tagContext.parent.sub.find(a => a.type === 'IF' && a.status === 10):
-            // IFの場合、IFのstatusがstatus=10(成功)になっていない
+                && tagContext.parent?.sub.some(a => ['IF', 'FOR'].includes(a.type))
+                && !tagContext.parent?.sub.some(a => ['IF', 'FOR'].includes(a.type) && a.status === 10):
+              // BEGINに対応するENDの場合
+              // ・子要素にIFまたはFORが存在する
+              // ・子要素のIFまたはFORにstatus=10(成功)を示すものが1つもない
             case tagContext.parent?.type === 'IF' && tagContext.parent.status !== 10:
+              // IFに対応するENDの場合、IFのstatusがstatus=10(成功)になっていない
+            case tagContext.parent?.type === 'FOR' && tagContext.parent.status !== 10:
+              // FORに対応するENDの場合、FORのstatusがstatus=10(成功)になっていない
               pos.index = tagContext.endIndex;
               return '';
             default:
@@ -376,7 +392,14 @@ export class SQLBuilder {
         case 'BIND': {
           result += template.substring(pos.index, tagContext.startIndex);
           pos.index = tagContext.endIndex;
-          const value = common.getProperty(entity, tagContext.contents);
+          // ★ UNKNOWN_TAG 判定
+          const hasProperty = Object.prototype.hasOwnProperty.call(entity, tagContext.contents);
+          if (!hasProperty) {
+            // UNKNOWN_TAG → 何も出力しない
+            break;
+          }
+          const rawValue = common.getProperty(entity, tagContext.contents);
+          const value = rawValue === undefined ? null : rawValue;
           switch (options?.bindType) {
             case 'postgres': {
               // PostgreSQL形式の場合、$Nでバインドパラメータを展開
@@ -559,6 +582,9 @@ export class SQLBuilder {
    * * 返却する値がboolean型の場合はそのまま返す
    *   true
    *   false
+   * * null/undefinedの場合は'NULL'を返す
+   *
+   * NULLの扱いを含むため、この関数はgenerateSQLのみで利用する
    *
    * @param {string} property `obj.param1.param2`などのドットで繋いだプロパティ
    * @param {Record<string, any>} entity
@@ -570,6 +596,9 @@ export class SQLBuilder {
     responseType?: T
   }): ExtractValueType<T> {
     const value = common.getProperty(entity, property);
+    if (value == null) {
+      return 'NULL' as ExtractValueType<T>;
+    }
     let result = '';
     switch (options?.responseType) {
       case 'array':

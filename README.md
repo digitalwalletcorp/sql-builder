@@ -225,8 +225,118 @@ console.log('Parameters:', params);
 **Resulting SQL & Parameters:**
 
 ```
-SQL: SELECT id, user_name FROM users WHERE 1 = 1 AND user_id = $1 AND project_name IN ($2, $3)
-Parameters: [ 123, 'project_a', 'project_b' ]
+SQL:
+  SELECT
+    id,
+    user_name
+  FROM users
+  WHERE
+    1 = 1
+    AND user_id = $1
+    AND project_name IN ($2, $3)
+
+Parameters:
+  [ 123, 'project_a', 'project_b' ]
+```
+
+##### Example 4: INSERT with NULL normalization
+
+**Template:**
+
+```sql
+INSERT INTO users (
+  user_id,
+  user_name,
+  email,
+  age
+) VALUES (
+  /*userId*/0,
+  /*userName*/'anonymous',
+  /*email*/'dummy@example.com',
+  /*age*/0
+)
+```
+
+**Code:**
+
+```typescript
+import { SQLBuilder } from '@digitalwalletcorp/sql-builder';
+
+const builder = new SQLBuilder();
+
+const template = `...`; // The SQL template from above
+
+const bindEntity = {
+  userId: 1001,
+  userName: 'Alice',
+  email: undefined, // optional column (not provided)
+  age: null         // optional column (explicitly null)
+};
+
+const sql1 = builder.generateSQL(
+  template,
+  bindEntity
+);
+
+console.log('SQL1:', sql1);
+
+const [sql2, params2] = builder.generateParameterizedSQL(
+  template,
+  bindEntity,
+  'postgres'
+);
+
+console.log('SQL2:', sql2);
+console.log('Parameters2:', params2);
+```
+
+**Result:**
+
+```text
+SQL1:
+  INSERT INTO users (
+    user_id,
+    user_name,
+    email,
+    age
+  ) VALUES (
+    1001,
+    'Alice',
+    NULL,
+    NULL
+  )
+
+SQL2:
+  INSERT INTO users (
+    user_id,
+    user_name,
+    email,
+    age
+  ) VALUES (
+    $1,
+    $2,
+    $3,
+    $4
+  )
+
+Parameters2:
+  [ 1001, 'Alice', null, null ]
+```
+
+**Notes:**
+
+- For both `generateSQL` and `generateParameterizedSQL`,
+  `undefined` and `null` values are normalized to SQL `NULL`.
+- This behavior is especially important for INSERT / UPDATE statements,
+  where the number of columns and values must always match.
+- NOT NULL constraint violations are intentionally left to the database.
+- If you need to handle `IS NULL` conditions explicitly, you can use `/*IF */` blocks as shown below:
+
+```sql
+WHERE
+  1 = 1
+  /*IF param == null*/AND param IS NULL/*END*/
+  /*IF param != null*/AND param = /*param*/'abc'/*END*/
 ```
 
 ### 🪄 Special Comment Syntax

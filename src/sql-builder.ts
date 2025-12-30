@@ -369,7 +369,6 @@ export class SQLBuilder {
           break;
         }
         case 'END': {
-          // 2025-04-13 現時点ではBEGINやIFがネストされた場合について期待通りに動作しない
           switch (true) {
             case tagContext.parent?.type === 'BEGIN'
                 && tagContext.parent?.sub.some(a => ['IF', 'FOR'].includes(a.type))

@@ -339,6 +339,11 @@ WHERE
   /*IF param != null*/AND param = /*param*/'abc'/*END*/
 ```
 
+**⚠️ Strict Binding Check:**
+- Every bind tag (e.g., `/*userId*/`) **must have a corresponding property** in the `bindEntity`.
+- If a property is missing in the `bindEntity`, the builder will throw an `Error` to prevent generating invalid or unintended SQL.
+- If you want to bind a `NULL` value, explicitly set the property to `null` or `undefined`.
+
 ### 🪄 Special Comment Syntax
 
 | Tag | Syntax | Description |

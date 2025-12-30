@@ -148,7 +148,7 @@ export class AbstractSyntaxTree {
             continue;
           } else {
             // クォートが閉じられていない
-            throw new Error(`Unterminated string literal: '${condition}', index: ${j}`);
+            throw new Error(`[SQLBuilder.AbstractSyntaxTree] Unterminated string literal: '${condition}', index: ${j}`);
           }
         default:
       }
@@ -179,7 +179,7 @@ export class AbstractSyntaxTree {
       }
 
       // 未知の文字
-      throw new Error(`Unexpected character in condition: ${char} at index ${i}`);
+      throw new Error(`[SQLBuilder.AbstractSyntaxTree] Unexpected character in condition: ${char} at index ${i}`);
     }
     return tokens;
   }
@@ -239,7 +239,7 @@ export class AbstractSyntaxTree {
               output.push(op);
             }
             if (!foundLeftParen) {
-              throw new Error('Mismatched parentheses');
+              throw new Error('[SQLBuilder.AbstractSyntaxTree] Mismatched parentheses');
             }
           }
           break;
@@ -250,7 +250,7 @@ export class AbstractSyntaxTree {
     while (operatorStack.length) {
       const op = operatorStack.pop()!;
       if (op.value === '(' || op.value === ')') {
-        throw new Error('Mismatched parentheses');
+        throw new Error('[SQLBuilder.AbstractSyntaxTree] Mismatched parentheses');
       }
       output.push(op);
     }
@@ -304,7 +304,7 @@ export class AbstractSyntaxTree {
             case '>=': stack.push(left >= right); break;
             case '&&': stack.push(left && right); break;
             case '||': stack.push(left || right); break;
-            default: throw new Error(`Unknown operator: ${token.value}`);
+            default: throw new Error(`[SQLBuilder.AbstractSyntaxTree] Unknown operator: ${token.value}`);
           }
           break;
         // default:
@@ -312,7 +312,7 @@ export class AbstractSyntaxTree {
     }
 
     if (stack.length !== 1) {
-      throw new Error(`Invalid expression: ${JSON.stringify(rpnTokens)}`);
+      throw new Error(`[SQLBuilder.AbstractSyntaxTree] Invalid expression: ${JSON.stringify(rpnTokens)}`);
     }
     // undefinedやnullが返ってきた場合、falseと評価されるようにする
     return !!stack[0];

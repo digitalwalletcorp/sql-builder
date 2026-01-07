@@ -156,7 +156,7 @@ WHERE
 
 Creates a new instance of the SQL builder.
 
-The bindType parameter is optional. If provided in the constructor, you do not need to specify it again when calling generateParameterizedSQL. This is useful for projects that consistently use a single database type.
+The bindType parameter is optional. If provided in the constructor, you do not need to specify it again when calling `generateParameterizedSQL`. This is useful for projects that consistently use a single database type.
 
 **Note on `bindType` Mapping:**
 While `bindType` explicitly names PostgreSQL, MySQL, Oracle and SQL Server the generated placeholder syntax is compatible with other SQL databases as follows:
@@ -175,6 +175,18 @@ Generates a final SQL string by processing the template with the provided data e
 * `template`: The SQL template string containing S2Dao-style comments.
 * `entity`: A data object whose properties are used for evaluating conditions (`/*IF...*/`) and binding values (`/*variable*/`).
 * Returns: The generated SQL string.
+
+⚠️ **Limitations**
+
+`generateSQL` is designed to generate **database-agnostic SQL**.
+Therefore, it does **not support database-specific or non-standard SQL syntax** that requires dialect-aware parsing or parameter binding.
+
+Examples of unsupported constructs include (but are not limited to):
+
+- PostgreSQL-specific syntax such as `ANY ($1::text[])`
+- Vendor-specific extensions that cannot be safely rendered as literals
+
+If you need to use database-specific features, use `generateParameterizedSQL` with an explicit `bindType`.
 
 ##### `generateParameterizedSQL(template: string, entity: Record<string, any>, bindType?: 'postgres' | 'mysql' | 'oracle' | 'mssql'): [string, Array<any> | Record<string, any>]`
 

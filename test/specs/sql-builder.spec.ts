@@ -529,6 +529,23 @@ describe('@/server/common/sql-builder.ts', () => {
             AND '2025-07-05' < verified_at
         `));
       });
+      it('generateSQL.syntax.110', () => {
+        // ANY/CAST構文 => generateSQLでは未サポート
+        const builder = new SQLBuilder();
+        const template = `
+          SELECT
+            id
+          FROM users
+          WHERE
+            status = /*status*/1
+            AND name = ANY (/*names*/('John')::text[])
+        `;
+        const bindEntity = {
+          status: 10,
+          names: ['Bob', 'Alice']
+        };
+        expect(() => builder.generateSQL(template, bindEntity)).toThrow('PostgreSQL array bind (::type[]) is not supported in generateSQL.');
+      });
     });
 
     describe('Operator Test Cases', () => {
@@ -2105,6 +2122,35 @@ describe('@/server/common/sql-builder.ts', () => {
           expect(bindParams).toEqual([
             1001, 'Alice',
             null, null
+          ]);
+        });
+        it('generateParameterizedSQL.typical.postgresql.004', () => {
+          // ANY/CAST構文
+          const builder = new SQLBuilder();
+          const template = `
+            SELECT
+              id
+            FROM users
+            WHERE
+              status = /*status*/1
+              AND name = ANY (/*names*/('John')::text[])
+          `;
+          const bindEntity = {
+            status: 10,
+            names: ['Bob', 'Alice']
+          };
+          const [sql, params] = builder.generateParameterizedSQL(template, bindEntity, 'postgres');
+          expect(formatSQL(sql)).toBe(formatSQL(`
+            SELECT
+              id
+            FROM users
+            WHERE
+              status = $1
+              AND name = ANY ($2::text[])
+          `));
+          expect(params).toEqual([
+            10,
+            ['Bob', 'Alice']
           ]);
         });
       });

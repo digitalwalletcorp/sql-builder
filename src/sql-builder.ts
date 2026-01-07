@@ -47,6 +47,7 @@ interface TagContext {
   sub: TagContext[];
   parent: TagContext | null;
   status: number; // 0: 初期、10: 成立 IFで条件が成立したかを判断するもの
+  isPgArray?: boolean; // PostgreSQLがサポートする配列構文(ANY ($1::text[]) など)を示すフラグ
 }
 
 interface SharedIndex {
@@ -232,6 +233,13 @@ export class SQLBuilder {
           // ダミー値の終了位置をendIndexに設定
           const dummyEndIndex = this.getDummyParamEndIndex(template, tagContext);
           tagContext.endIndex = dummyEndIndex;
+
+          // PostgreSQL ANY/CAST構文判定
+          // 例) AND name = ANY (/*names*/('Bob')::text[]) => AND name = ANY ($1::text[])
+          const afterDummy = template.substring(dummyEndIndex);
+          if (/^\s*::\s*\w+\s*\[\s*\]/.test(afterDummy)) {
+            tagContext.isPgArray = true;
+          }
         }
       }
       tagContexts.push(tagContext);
@@ -403,15 +411,22 @@ export class SQLBuilder {
             case 'postgres': {
               // PostgreSQL形式の場合、$Nでバインドパラメータを展開
               if (Array.isArray(value)) {
-                const placeholders: string[] = [];
-                for (const item of value) {
-                  placeholders.push(`$${options.bindIndex++}`);
-                  (options.bindParams as any[]).push(item);
+                if (tagContext.isPgArray) {
+                  // ANY / ALL 構文の場合
+                  (options.bindParams as any[]).push(value);
+                  result += `$${options.bindIndex++}`;
+                } else {
+                  // IN句の場合
+                  const placeholders: string[] = [];
+                  for (const item of value) {
+                    placeholders.push(`$${options.bindIndex++}`);
+                    (options.bindParams as any[]).push(item);
+                  }
+                  result += `(${placeholders.join(',')})`; // IN ($1,$2,$3)
                 }
-                result += `(${placeholders.join(',')})`; // IN ($1,$2,$3)
               } else {
-                result += `$${options.bindIndex++}`;
                 (options.bindParams as any[]).push(value);
+                result += `$${options.bindIndex++}`;
               }
               break;
             }
@@ -425,8 +440,8 @@ export class SQLBuilder {
                 }
                 result += `(${placeholders.join(',')})`; // IN (?,?,?)
               } else {
-                result += '?';
                 (options.bindParams as any[]).push(value);
+                result += '?';
               }
               break;
             }
@@ -442,8 +457,8 @@ export class SQLBuilder {
                 }
                 result += `(${placeholders.join(',')})`; // IN (:p_0,:p_1,:p3)
               } else {
-                result += `:${tagContext.contents}`;
                 (options.bindParams as Record<string, any>)[tagContext.contents] = value;
+                result += `:${tagContext.contents}`;
               }
               break;
             }
@@ -459,13 +474,17 @@ export class SQLBuilder {
                 }
                 result += `(${placeholders.join(',')})`; // IN (:p_0,:p_1,:p3)
               } else {
-                result += `@${tagContext.contents}`;
                 (options.bindParams as Record<string, any>)[tagContext.contents] = value;
+                result += `@${tagContext.contents}`;
               }
               break;
             }
             default: {
               // generateSQLの場合
+              if (tagContext.isPgArray) {
+                // PostgreSQLのANY/CAST構文が検出された場合
+                throw new Error(`[SQLBuilder] PostgreSQL array bind (::type[]) is not supported in generateSQL. Use generateParameterizedSQL instead. (Property: ${tagContext.contents}, index: ${tagContext.startIndex})`);
+              }
               const escapedValue = this.extractValue(tagContext.contents, entity);
               result += escapedValue ?? '';
             }

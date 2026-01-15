@@ -251,6 +251,30 @@ Parameters:
   [ 123, 'project_a', 'project_b' ]
 ```
 
+###### ⚠️ PostgreSQL-specific notes
+
+When using PostgreSQL-specific features such as `ANY` with array parameters,
+the SQL template must be written in a form that is valid PostgreSQL SQL by itself.
+
+For example, to use `ANY` with a text array, write the array literal directly in the template.
+The builder will replace the **entire array literal** with a single bind placeholder:
+
+```sql
+AND user_id = ANY (/*userIds*/ARRAY['U100','U101']::text[])
+```
+
+This will be rendered as:
+
+```sql
+AND user_id = ANY ($1::text[])
+```
+
+with the following bind parameters:
+
+```typescript
+[ ['U100', 'U101'] ]
+```
+
 ##### Example 4: INSERT with NULL normalization
 
 **Template:**

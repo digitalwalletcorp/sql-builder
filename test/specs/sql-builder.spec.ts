@@ -538,7 +538,7 @@ describe('@/server/common/sql-builder.ts', () => {
           FROM users
           WHERE
             status = /*status*/1
-            AND name = ANY (/*names*/('John')::text[])
+            AND name = ANY (/*names*/ARRAY['John']::text[])
         `;
         const bindEntity = {
           status: 10,
@@ -995,6 +995,84 @@ describe('@/server/common/sql-builder.ts', () => {
         `));
       });
       it('generateSQL.operator.024', () => {
+        // === (厳密等価条件:nullに対する判定 - 成立)
+        const builder = new SQLBuilder();
+        const template = `
+          SELECT * FROM user
+          /*BEGIN*/WHERE
+            1 = 1
+            /*IF id === null*/AND id = 'x'/*END*/
+          /*END*/
+        `;
+        const bindEntity = {
+          id: null
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT * FROM user
+          WHERE
+            1 = 1
+            AND id = 'x'
+        `));
+      });
+      it('generateSQL.operator.025', () => {
+        // === (厳密等価条件:nullに対する判定 - 不成立)
+        const builder = new SQLBuilder();
+        const template = `
+          SELECT * FROM user
+          /*BEGIN*/WHERE
+            1 = 1
+            /*IF id === null*/AND id = 'x'/*END*/
+          /*END*/
+        `;
+        const bindEntity = {
+          id: undefined
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT * FROM user
+        `));
+      });
+      it('generateSQL.operator.026', () => {
+        // === (厳密等価条件:undefinedに対する判定 - 成立)
+        const builder = new SQLBuilder();
+        const template = `
+          SELECT * FROM user
+          /*BEGIN*/WHERE
+            1 = 1
+            /*IF id === undefined*/AND id = 'x'/*END*/
+          /*END*/
+        `;
+        const bindEntity = {
+          id: undefined
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT * FROM user
+          WHERE
+            1 = 1
+            AND id = 'x'
+        `));
+      });
+      it('generateSQL.operator.027', () => {
+        // === (厳密等価条件:undefinedに対する判定 - 不成立)
+        const builder = new SQLBuilder();
+        const template = `
+          SELECT * FROM user
+          /*BEGIN*/WHERE
+            1 = 1
+            /*IF id === undefined*/AND id = 'x'/*END*/
+          /*END*/
+        `;
+        const bindEntity = {
+          id: 'a'
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT * FROM user
+        `));
+      });
+      it('generateSQL.operator.028', () => {
         // < (未満条件 - 成立)
         const builder = new SQLBuilder();
         const template = `
@@ -1013,7 +1091,7 @@ describe('@/server/common/sql-builder.ts', () => {
             age = 25
         `));
       });
-      it('generateSQL.operator.025', () => {
+      it('generateSQL.operator.029', () => {
         // < (未満条件 - 不成立)
         const builder = new SQLBuilder();
         const template = `
@@ -1030,7 +1108,7 @@ describe('@/server/common/sql-builder.ts', () => {
           SELECT * FROM user
         `));
       });
-      it('generateSQL.operator.026', () => {
+      it('generateSQL.operator.030', () => {
         // <= (以下条件 - 成立)
         const builder = new SQLBuilder();
         const template = `
@@ -1049,7 +1127,7 @@ describe('@/server/common/sql-builder.ts', () => {
             age = 30
         `));
       });
-      it('generateSQL.operator.027', () => {
+      it('generateSQL.operator.031', () => {
         // <= (以下条件 - 不成立)
         const builder = new SQLBuilder();
         const template = `
@@ -1066,7 +1144,7 @@ describe('@/server/common/sql-builder.ts', () => {
           SELECT * FROM user
         `));
       });
-      it('generateSQL.operator.028', () => {
+      it('generateSQL.operator.032', () => {
         // > (より大条件 - 成立)
         const builder = new SQLBuilder();
         const template = `
@@ -1085,7 +1163,7 @@ describe('@/server/common/sql-builder.ts', () => {
             age = 31
         `));
       });
-      it('generateSQL.operator.029', () => {
+      it('generateSQL.operator.033', () => {
         // > (より大条件 - 不成立)
         const builder = new SQLBuilder();
         const template = `
@@ -1102,7 +1180,7 @@ describe('@/server/common/sql-builder.ts', () => {
           SELECT * FROM user
         `));
       });
-      it('generateSQL.operator.030', () => {
+      it('generateSQL.operator.034', () => {
         // >= (以上条件 - 成立)
         const builder = new SQLBuilder();
         const template = `
@@ -1121,7 +1199,7 @@ describe('@/server/common/sql-builder.ts', () => {
             age = 30
         `));
       });
-      it('generateSQL.operator.031', () => {
+      it('generateSQL.operator.035', () => {
         // >= (以上条件 - 不成立)
         const builder = new SQLBuilder();
         const template = `
@@ -1138,7 +1216,7 @@ describe('@/server/common/sql-builder.ts', () => {
           SELECT * FROM user
         `));
       });
-      it('generateSQL.operator.032', () => {
+      it('generateSQL.operator.036', () => {
         // ! (NOT演算子 - 成立)
         const builder = new SQLBuilder();
         const template = `
@@ -1157,7 +1235,7 @@ describe('@/server/common/sql-builder.ts', () => {
             status = 0
         `));
       });
-      it('generateSQL.operator.033', () => {
+      it('generateSQL.operator.037', () => {
         // ! (NOT演算子 - 不成立)
         const builder = new SQLBuilder();
         const template = `
@@ -2133,7 +2211,7 @@ describe('@/server/common/sql-builder.ts', () => {
             FROM users
             WHERE
               status = /*status*/1
-              AND name = ANY (/*names*/('John')::text[])
+              AND name = ANY (/*names*/array['John']::text[])
           `;
           const bindEntity = {
             status: 10,
@@ -2152,6 +2230,81 @@ describe('@/server/common/sql-builder.ts', () => {
             10,
             ['Bob', 'Alice']
           ]);
+        });
+        it('generateParameterizedSQL.typical.postgresql.005', () => {
+          // NOT ANY/CAST構文
+          const builder = new SQLBuilder();
+          const template = `
+            SELECT
+              id
+            FROM users
+            WHERE
+              status = /*status*/1
+              AND NOT (name = ANY (/*names*/ARRAY['John']::text[]))
+          `;
+          const bindEntity = {
+            status: 10,
+            names: ['Bob', 'Alice']
+          };
+          const [sql, params] = builder.generateParameterizedSQL(template, bindEntity, 'postgres');
+          expect(formatSQL(sql)).toBe(formatSQL(`
+            SELECT
+              id
+            FROM users
+            WHERE
+              status = $1
+              AND NOT (name = ANY ($2::text[]))
+          `));
+          expect(params).toEqual([
+            10,
+            ['Bob', 'Alice']
+          ]);
+        });
+        it('generateParameterizedSQL.typical.postgresql.006', () => {
+          // ANY/CAST構文でバインドパラメータが空配列の場合
+          const builder = new SQLBuilder();
+          const template = `
+            SELECT
+              id
+            FROM users
+            WHERE
+              status = /*status*/1
+              AND name = ANY (/*names*/ARRAY['John']::text[])
+          `;
+          const bindEntity = {
+            status: 10,
+            names: []
+          };
+          const [sql, params] = builder.generateParameterizedSQL(template, bindEntity, 'postgres');
+          expect(formatSQL(sql)).toBe(formatSQL(`
+            SELECT
+              id
+            FROM users
+            WHERE
+              status = $1
+              AND name = ANY ($2::text[])
+          `));
+          expect(params).toEqual([
+            10,
+            []
+          ]);
+        });
+        it('generateParameterizedSQL.typical.postgresql.007', () => {
+          // ANY/CAST構文で記述が不正な場合(::text[]であるべきところ:text[])
+          const builder = new SQLBuilder();
+          const template = `
+            SELECT
+              id
+            FROM users
+            WHERE
+              status = /*status*/1
+              AND name = ANY (/*names*/ARRAY['John']:text[])
+          `;
+          const bindEntity = {
+            status: 10,
+            names: ['Bob', 'Alice']
+          };
+          expect(() => builder.generateParameterizedSQL(template, bindEntity, 'postgres')).toThrow('[SQLBuilder] PostgreSQL ARRAY bind requires explicit cast (e.g. ARRAY[...]::text[]).');
         });
       });
 

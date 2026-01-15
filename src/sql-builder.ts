@@ -48,6 +48,7 @@ interface TagContext {
   parent: TagContext | null;
   status: number; // 0: 初期、10: 成立 IFで条件が成立したかを判断するもの
   isPgArray?: boolean; // PostgreSQLがサポートする配列構文(ANY ($1::text[]) など)を示すフラグ
+  pgArrayCast?: string; // ::text[] などのCAST部分を保持する
 }
 
 interface SharedIndex {
@@ -96,7 +97,12 @@ interface SharedIndex {
  */
 export class SQLBuilder {
 
+  // `/*xxx*/`の部分を抽出するパターン
   private REGEX_TAG_PATTERN = /\/\*(.*?)\*\//g;
+
+  // `ANY (/*bindParam*/ARRAY['John']::text[])`の`ARRAY[...]::...[]`部分を抽出するパターン
+  // `array [100, 200] :: numeric(10, 2) []` のようなパターンも存在する
+  private PGSQL_ARRAY_CAST_PATTERN = /^ARRAY\s*\[.*?\]\s*::\s*([a-zA-Z_]\w*(?:\([^\)]*\))?)\s*\[\]/i;
 
   private bindType?: BindType;
 
@@ -235,10 +241,15 @@ export class SQLBuilder {
           tagContext.endIndex = dummyEndIndex;
 
           // PostgreSQL ANY/CAST構文判定
-          // 例) AND name = ANY (/*names*/('Bob')::text[]) => AND name = ANY ($1::text[])
-          const afterDummy = template.substring(dummyEndIndex);
-          if (/^\s*::\s*\w+\s*\[\s*\]/.test(afterDummy)) {
+          // 例) AND name = ANY (/*names*/ARRAY['Bob']::text[]) => AND name = ANY ($1::text[])
+          if (/ARRAY\s*\[/i.test(template.substring(tagContext.startIndex, dummyEndIndex))) {
             tagContext.isPgArray = true;
+            // CAST部分の抽出
+            const dummySql = template.substring(tagContext.startIndex, dummyEndIndex);
+            const castMatch = dummySql.match(/(::\s*\w+\s*\[\s*\])/);
+            if (castMatch) {
+              tagContext.pgArrayCast = castMatch[1];
+            }
           }
         }
       }
@@ -410,20 +421,24 @@ export class SQLBuilder {
           switch (options?.bindType) {
             case 'postgres': {
               // PostgreSQL形式の場合、$Nでバインドパラメータを展開
-              if (Array.isArray(value)) {
-                if (tagContext.isPgArray) {
-                  // ANY / ALL 構文の場合
-                  (options.bindParams as any[]).push(value);
-                  result += `$${options.bindIndex++}`;
-                } else {
-                  // IN句の場合
-                  const placeholders: string[] = [];
-                  for (const item of value) {
-                    placeholders.push(`$${options.bindIndex++}`);
-                    (options.bindParams as any[]).push(item);
-                  }
-                  result += `(${placeholders.join(',')})`; // IN ($1,$2,$3)
+              if (tagContext.isPgArray) {
+                if (!tagContext.pgArrayCast) {
+                  throw new Error(
+                    `[SQLBuilder] PostgreSQL ARRAY bind requires explicit cast (e.g. ARRAY[...]::text[]). ` +
+                    `Property: ${tagContext.contents}, index: ${tagContext.startIndex}`
+                  );
                 }
+                (options.bindParams as any[]).push(value);
+                const cast = tagContext.pgArrayCast ?? ''; // ::text[] などのCAST部分がついている場合は書き戻す
+                result += `$${options.bindIndex++}${cast}`;
+              } else if (Array.isArray(value)) {
+                // IN句の場合
+                const placeholders: string[] = [];
+                for (const item of value) {
+                  placeholders.push(`$${options.bindIndex++}`);
+                  (options.bindParams as any[]).push(item);
+                }
+                result += `(${placeholders.join(',')})`; // IN ($1,$2,$3)
               } else {
                 (options.bindParams as any[]).push(value);
                 result += `$${options.bindIndex++}`;
@@ -566,6 +581,13 @@ export class SQLBuilder {
             return i;
           case c === ',':
             return i;
+          case c === 'A' || c === 'a':
+            // PostgreSQLの`ANY (/*bindParam*/ARRAY['John']::text[])`を解析するパターン
+            const target = template.substring(i);
+            const match = target.match(this.PGSQL_ARRAY_CAST_PATTERN);
+            if (match) {
+              return i + match[0].length;
+            }
           default:
         }
       }

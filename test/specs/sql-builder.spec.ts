@@ -30,10 +30,10 @@ describe('@/server/common/sql-builder.ts', () => {
           SELECT COUNT(*) AS cnt FROM activity
           /*BEGIN*/WHERE
             1 = 1
-            /*IF projectNames.length*/AND project_name IN /*projectNames*/('project1')/*END*/
-            /*IF nodeNames.length*/AND node_name IN /*nodeNames*/('node1')/*END*/
-            /*IF jobNames.length*/AND job_name IN /*jobNames*/('job1')/*END*/
-            /*IF statuses.length*/AND status IN /*statuses*/(1)/*END*/
+            /*IF projectNames.length*/AND project_name IN (/*projectNames*/'project1')/*END*/
+            /*IF nodeNames.length*/AND node_name IN (/*nodeNames*/'node1')/*END*/
+            /*IF jobNames.length*/AND job_name IN (/*jobNames*/'job1')/*END*/
+            /*IF statuses.length*/AND status IN (/*statuses*/1)/*END*/
           /*END*/
         `;
         const bindEntity = {
@@ -60,10 +60,10 @@ describe('@/server/common/sql-builder.ts', () => {
           SELECT COUNT(*) AS cnt FROM activity
           WHERE
             1 = 1
-            /*IF projectNames.length*/AND project_name IN /*projectNames*/('project1')/*END*/
-            /*IF nodeNames.length*/AND node_name IN /*nodeNames*/('node1')/*END*/
-            /*IF jobNames.length*/AND job_name IN /*jobNames*/('job1')/*END*/
-            /*IF statuses.length*/AND status IN /*statuses*/(1)/*END*/
+            /*IF projectNames.length*/AND project_name IN (/*projectNames*/'project1')/*END*/
+            /*IF nodeNames.length*/AND node_name IN (/*nodeNames*/'node1')/*END*/
+            /*IF jobNames.length*/AND job_name IN (/*jobNames*/'job1')/*END*/
+            /*IF statuses.length*/AND status IN (/*statuses*/1)/*END*/
         `;
         const bindEntity = {
           projectNames: ['pj1', 'pj2'],
@@ -89,10 +89,10 @@ describe('@/server/common/sql-builder.ts', () => {
           SELECT COUNT(*) AS cnt FROM activity
           /*BEGIN*/WHERE
             1 = 1
-            /*IF projectNames.length*/AND project_name IN /*projectNames*/('project1')/*END*/
-            /*IF nodeNames.length*/AND node_name IN /*nodeNames*/('node1')/*END*/
-            /*IF jobNames.length*/AND job_name IN /*jobNames*/('job1')/*END*/
-            /*IF statuses.length*/AND status IN /*statuses*/(1)/*END*/
+            /*IF projectNames.length*/AND project_name IN (/*projectNames*/'project1')/*END*/
+            /*IF nodeNames.length*/AND node_name IN (/*nodeNames*/'node1')/*END*/
+            /*IF jobNames.length*/AND job_name IN (/*jobNames*/'job1')/*END*/
+            /*IF statuses.length*/AND status IN (/*statuses*/1)/*END*/
           /*END*/
         `;
         const bindEntity = {
@@ -353,10 +353,10 @@ describe('@/server/common/sql-builder.ts', () => {
           SELECT COUNT(*) AS cnt FROM activity
           WHERE
             1 = 1
-            /*IF projectNames.length */ AND project_name IN /* projectNames */('project1') /*END*/
-            /*IF nodeNames.length */ AND node_name IN /* nodeNames */('node1') /*END*/
-            /*IF jobNames.length */ AND job_name IN /* jobNames */('job1') /*END*/
-            /*IF statuses.length */ AND status IN /* statuses */(1) /*END*/
+            /*IF projectNames.length */ AND project_name IN (/* projectNames */'project1') /*END*/
+            /*IF nodeNames.length */ AND node_name IN (/* nodeNames */'node1') /*END*/
+            /*IF jobNames.length */ AND job_name IN (/* jobNames */'job1') /*END*/
+            /*IF statuses.length */ AND status IN (/* statuses */1) /*END*/
         `;
         const bindEntity = {
           projectNames: ['pj1', 'pj2'],
@@ -384,7 +384,7 @@ describe('@/server/common/sql-builder.ts', () => {
           WHERE
             1 = 1
             /*IF status == 10*/
-              /*IF jobNames != null && jobNames.length*/AND job_names IN /*jobNames*/('jobname')/*END*/
+              /*IF jobNames != null && jobNames.length*/AND job_names IN (/*jobNames*/'jobname')/*END*/
             /*END*/
         `;
         const bindEntity = {
@@ -462,7 +462,7 @@ describe('@/server/common/sql-builder.ts', () => {
           FROM judgement
           /*BEGIN*/WHERE
             1 = 1
-            /*IF userIds?.length*/AND user_id IN /*userIds*/(123)/*END*/
+            /*IF userIds?.length*/AND user_id IN (/*userIds*/123)/*END*/
             /*IF targetDate*/AND target_date = /*targetDate*/'2025-07-05'/*END*/
             /*IF notProcessed != null && modified != null && misjudged != null*/AND (
               /*BEGIN*/
@@ -546,6 +546,67 @@ describe('@/server/common/sql-builder.ts', () => {
         };
         expect(() => builder.generateSQL(template, bindEntity)).toThrow('PostgreSQL array bind (::type[]) is not supported in generateSQL.');
       });
+      it('generateSQL.syntax.201', () => {
+        // INSERT文で設定するカラムが動的(設定しない行が出力されないこと、行末尾のカンマが出力されること)
+        const builder = new SQLBuilder();
+        const template = `
+          INSERT INTO users (
+            /*IF name !== undefined*/name,/*END*/
+            /*IF !!gendar*/gendar,/*END*/
+            /*IF status != null*/status,/*END*/
+            user_id
+          ) VALUES (
+            /*IF name !== undefined*//*name*/'John',/*END*/
+            /*IF !!gendar*//*gendar*/'M',/*END*/
+            /*IF status != null*//*status*/1,/*END*/
+            /*userId*/1
+          )
+        `;
+        const bindEntity = {
+          name: undefined,
+          gendar: 'F',
+          status: 10,
+          userId: 12345
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          INSERT INTO users (
+            gendar,
+            status,
+            user_id
+          ) VALUES (
+            'F',
+            10,
+            12345
+          )
+        `));
+      });
+      it('generateSQL.syntax.202', () => {
+        // UPDATE文で設定するカラムが動的(行末尾のカンマが出力されること)
+        const builder = new SQLBuilder();
+        const template = `
+          UPDATE users SET
+            /*IF name !== undefined*/name = /*name*/'John',/*END*/
+            /*IF !!gendar*/gendar = /*gendar*/'M',/*END*/
+            status = 10
+          WHERE
+            user_id = /*userId*/
+        `;
+        const bindEntity = {
+          name: null,
+          gendar: 'F',
+          userId: 1
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          UPDATE users SET
+            name = NULL,
+            gendar = 'F',
+            status = 10
+          WHERE
+            user_id = 1
+        `));
+      });
     });
 
     describe('Operator Test Cases', () => {
@@ -579,10 +640,10 @@ describe('@/server/common/sql-builder.ts', () => {
           SELECT * FROM activity
           /*BEGIN*/WHERE
             1 = 1
-            /*IF projectNames != null && projectNames.length*/AND project_name IN /*projectNames*/('project1')/*END*/
-            /*IF nodeNames != null && nodeNames.length*/AND node_name IN /*nodeNames*/('node1')/*END*/
-            /*IF jobNames != null && jobNames.length*/AND job_name IN /*jobNames*/('job1')/*END*/
-            /*IF statuses != null && statuses.length*/AND status IN /*statuses*/(1)/*END*/
+            /*IF projectNames != null && projectNames.length*/AND project_name IN (/*projectNames*/'project1')/*END*/
+            /*IF nodeNames != null && nodeNames.length*/AND node_name IN (/*nodeNames*/'node1')/*END*/
+            /*IF jobNames != null && jobNames.length*/AND job_name IN (/*jobNames*/'job1')/*END*/
+            /*IF statuses != null && statuses.length*/AND status IN (/*statuses*/1)/*END*/
           /*END*/
           ORDER BY started_at DESC NULLS LAST
           /*IF limit != null*/LIMIT /*limit*/100/*END*/
@@ -1861,7 +1922,7 @@ describe('@/server/common/sql-builder.ts', () => {
             user_id
           FROM user
           WHERE
-            data_key IN /*params*/('Name')
+            data_key IN (/*params*/'Name')
         `;
         const bindEntity = {
           params: [
@@ -2134,10 +2195,10 @@ describe('@/server/common/sql-builder.ts', () => {
             SELECT COUNT(*) AS cnt FROM activity
             /*BEGIN*/WHERE
               1 = 1
-              /*IF projectNames.length*/AND project_name IN /*projectNames*/('project1')/*END*/
-              /*IF nodeNames.length*/AND node_name IN /*nodeNames*/('node1')/*END*/
-              /*IF jobNames.length*/AND job_name IN /*jobNames*/('job1')/*END*/
-              /*IF statuses.length*/AND status IN /*statuses*/(1)/*END*/
+              /*IF projectNames.length*/AND project_name IN (/*projectNames*/'project1')/*END*/
+              /*IF nodeNames.length*/AND node_name IN (/*nodeNames*/'node1')/*END*/
+              /*IF jobNames.length*/AND job_name IN (/*jobNames*/'job1')/*END*/
+              /*IF statuses.length*/AND status IN (/*statuses*/1)/*END*/
             /*END*/
           `;
           const bindEntity = {
@@ -2349,10 +2410,10 @@ describe('@/server/common/sql-builder.ts', () => {
             SELECT COUNT(*) AS cnt FROM activity
             /*BEGIN*/WHERE
               1 = 1
-              /*IF projectNames.length*/AND project_name IN /*projectNames*/('project1')/*END*/
-              /*IF nodeNames.length*/AND node_name IN /*nodeNames*/('node1')/*END*/
-              /*IF jobNames.length*/AND job_name IN /*jobNames*/('job1')/*END*/
-              /*IF statuses.length*/AND status IN /*statuses*/(1)/*END*/
+              /*IF projectNames.length*/AND project_name IN (/*projectNames*/'project1')/*END*/
+              /*IF nodeNames.length*/AND node_name IN (/*nodeNames*/'node1')/*END*/
+              /*IF jobNames.length*/AND job_name IN (/*jobNames*/'job1')/*END*/
+              /*IF statuses.length*/AND status IN (/*statuses*/1)/*END*/
             /*END*/
           `;
           const bindEntity = {
@@ -2419,10 +2480,10 @@ describe('@/server/common/sql-builder.ts', () => {
             SELECT COUNT(*) AS cnt FROM activity
             /*BEGIN*/WHERE
               1 = 1
-              /*IF projectNames.length*/AND project_name IN /*projectNames*/('project1')/*END*/
-              /*IF nodeNames.length*/AND node_name IN /*nodeNames*/('node1')/*END*/
-              /*IF jobNames.length*/AND job_name IN /*jobNames*/('job1')/*END*/
-              /*IF statuses.length*/AND status IN /*statuses*/(1)/*END*/
+              /*IF projectNames.length*/AND project_name IN (/*projectNames*/'project1')/*END*/
+              /*IF nodeNames.length*/AND node_name IN (/*nodeNames*/'node1')/*END*/
+              /*IF jobNames.length*/AND job_name IN (/*jobNames*/'job1')/*END*/
+              /*IF statuses.length*/AND status IN (/*statuses*/1)/*END*/
             /*END*/
           `;
           const bindEntity = {
@@ -2492,10 +2553,10 @@ describe('@/server/common/sql-builder.ts', () => {
             SELECT COUNT(*) AS cnt FROM activity
             /*BEGIN*/WHERE
               1 = 1
-              /*IF projectNames.length*/AND project_name IN /*projectNames*/('project1')/*END*/
-              /*IF nodeNames.length*/AND node_name IN /*nodeNames*/('node1')/*END*/
-              /*IF jobNames.length*/AND job_name IN /*jobNames*/('job1')/*END*/
-              /*IF statuses.length*/AND status IN /*statuses*/(1)/*END*/
+              /*IF projectNames.length*/AND project_name IN (/*projectNames*/'project1')/*END*/
+              /*IF nodeNames.length*/AND node_name IN (/*nodeNames*/'node1')/*END*/
+              /*IF jobNames.length*/AND job_name IN (/*jobNames*/'job1')/*END*/
+              /*IF statuses.length*/AND status IN (/*statuses*/1)/*END*/
             /*END*/
           `;
           const bindEntity = {

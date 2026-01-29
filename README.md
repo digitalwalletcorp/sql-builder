@@ -6,6 +6,47 @@ Inspired by Java's S2Dao, this TypeScript/JavaScript library dynamically generat
 
 The core mechanism involves parsing special SQL comments (`/*IF ...*/`, `/*BEGIN...*/`, etc.) in a template and generating a final query based on a provided data object.
 
+### ⚠️ Breaking Change in IN Clause Behavior (v1 → v2)
+
+**v2.0.0 introduces a breaking change in how arrays are rendered for `IN` clauses.**
+
+- **v1.x behavior:** The bind array was automatically output with surrounding parentheses, so the template **did not need to include parentheses**.
+- **v2.x behavior:** Only the array values are output. You must **include parentheses in the template** to form a valid `IN` clause.
+
+**v1.x Example (no parentheses in template)**
+```sql
+SELECT *
+FROM activity
+WHERE project_name IN /*projectNames*/('project1')
+```
+
+```typescript
+const bindEntity = { projectNames: ['api', 'batch'] };
+const sql = builder.generateSQL(template, bindEntity);
+console.log(sql);
+
+// Output (v1.x)
+// project_name IN ('api','batch') ← parentheses added automatically
+```
+
+**v2.x Example (parentheses required in template)**
+```sql
+SELECT *
+FROM activity
+WHERE project_name IN (/*projectNames*/'project1')
+```
+
+```typescript
+const bindEntity = { projectNames: ['api', 'batch'] };
+const sql = builder.generateSQL(template, bindEntity);
+console.log(sql);
+
+// Output (v2.x)
+// project_name IN ('api','batch')  ← only values are inserted
+```
+
+> 💡 Tip: If you upgrade a template from v1.x to v2.x, make sure to add parentheses around any IN bind variables to avoid SQL syntax errors.
+
 ### ✨ Features
 
 * Dynamic Query Generation: Build complex SQL queries dynamically at runtime.
@@ -48,8 +89,8 @@ SELECT
 FROM activity
 /*BEGIN*/WHERE
   1 = 1
-  /*IF projectNames != null && projectNames.length*/AND project_name IN /*projectNames*/('project1')/*END*/
-  /*IF statuses != null && statuses.length*/AND status IN /*statuses*/(1)/*END*/
+  /*IF projectNames != null && projectNames.length*/AND project_name IN (*projectNames*/'project1')/*END*/
+  /*IF statuses != null && statuses.length*/AND status IN (/*statuses*/1)/*END*/
 /*END*/
 ORDER BY started_at DESC
 LIMIT /*limit*/100
@@ -212,7 +253,7 @@ FROM users
 /*BEGIN*/WHERE
   1 = 1
   /*IF userId != null*/AND user_id = /*userId*/0/*END*/
-  /*IF projectNames.length*/AND project_name IN /*projectNames*/('default_project')/*END*/
+  /*IF projectNames.length*/AND project_name IN (/*projectNames*/'default_project')/*END*/
 /*END*/
 ```
 

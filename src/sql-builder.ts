@@ -438,7 +438,7 @@ export class SQLBuilder {
                   placeholders.push(`$${options.bindIndex++}`);
                   (options.bindParams as any[]).push(item);
                 }
-                result += `(${placeholders.join(',')})`; // IN ($1,$2,$3)
+                result += placeholders.join(','); // IN ($1,$2,$3)
               } else {
                 (options.bindParams as any[]).push(value);
                 result += `$${options.bindIndex++}`;
@@ -453,7 +453,7 @@ export class SQLBuilder {
                   placeholders.push('?');
                   (options.bindParams as any[]).push(item);
                 }
-                result += `(${placeholders.join(',')})`; // IN (?,?,?)
+                result += placeholders.join(','); // IN (?,?,?)
               } else {
                 (options.bindParams as any[]).push(value);
                 result += '?';
@@ -470,7 +470,7 @@ export class SQLBuilder {
                   placeholders.push(`:${paramName}`);
                   (options.bindParams as Record<string, any>)[paramName] = value[i];
                 }
-                result += `(${placeholders.join(',')})`; // IN (:p_0,:p_1,:p3)
+                result += placeholders.join(','); // IN (:p_0,:p_1,:p3)
               } else {
                 (options.bindParams as Record<string, any>)[tagContext.contents] = value;
                 result += `:${tagContext.contents}`;
@@ -487,7 +487,7 @@ export class SQLBuilder {
                   placeholders.push(`@${paramName}`);
                   (options.bindParams as Record<string, any>)[paramName] = value[i];
                 }
-                result += `(${placeholders.join(',')})`; // IN (:p_0,:p_1,:p3)
+                result += placeholders.join(','); // IN (:p_0,:p_1,:p3)
               } else {
                 (options.bindParams as Record<string, any>)[tagContext.contents] = value;
                 result += `@${tagContext.contents}`;
@@ -559,10 +559,12 @@ export class SQLBuilder {
             break;
           case c === '(':
             // 丸括弧開始
-            bracket = true;
-            break;
+            // bracket = true;
+            // break;
+            return i;
           case c === ')':
-            throw new Error(`[SQLBuilder] 括弧が開始されていません [index: ${i}, subsequence: '${template.substring(Math.max(i - 20, 0), i + 20)}']`);
+            // throw new Error(`[SQLBuilder] 括弧が開始されていません [index: ${i}, subsequence: '${template.substring(Math.max(i - 20, 0), i + 20)}']`);
+            return i;
           case c === '*' && 1 < i && chars[i - 1] === '/':
             // 次ノード開始
             return i - 1;
@@ -647,7 +649,7 @@ export class SQLBuilder {
       default:
         // string
         if (Array.isArray(value)) {
-          result = `(${value.map(v => typeof v === 'string' ? `'${this.escape(v)}'` : v).join(',')})`;
+          result = value.map(v => typeof v === 'string' ? `'${this.escape(v)}'` : v).join(',');
         } else {
           result = typeof value === 'string' ? `'${this.escape(value)}'` : value;
         }

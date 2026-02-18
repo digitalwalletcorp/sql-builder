@@ -47,7 +47,7 @@ console.log(sql);
 
 > 💡 Tip: If you upgrade a template from v1.x to v2.x, make sure to add parentheses around any IN bind variables to avoid SQL syntax errors.
 
-### ✨ Features
+#### ✨ Features
 
 * Dynamic Query Generation: Build complex SQL queries dynamically at runtime.
 * Conditional Logic (`/*IF...*/`): Automatically include or exclude SQL fragments based on JavaScript conditions evaluated against your data.
@@ -56,14 +56,14 @@ console.log(sql);
 * Simple Parameter Binding: Easily bind values from your data object into the SQL query.
 * Zero Dependencies: A single, lightweight class with no external library requirements.
 
-### ✅ Compatibility
+#### ✅ Compatibility
 
 This library is written in pure, environment-agnostic JavaScript/TypeScript and has zero external dependencies, allowing it to run in various environments.
 
 - ✅ **Node.js**: Designed and optimized for server-side use in any modern Node.js environment. This is the **primary and recommended** use case.
 - ⚠️ **Browser-like Environments (Advanced)**: While technically capable of running in browsers (e.g., for use with in-browser databases like SQLite via WebAssembly), generating SQL on the client-side to be sent to a server **is a significant security risk and is strongly discouraged** in typical web applications.
 
-### 📦 Instllation
+#### 📦 Installation
 
 ```bash
 npm install @digitalwalletcorp/sql-builder
@@ -89,7 +89,7 @@ SELECT
 FROM activity
 /*BEGIN*/WHERE
   1 = 1
-  /*IF projectNames != null && projectNames.length*/AND project_name IN (*projectNames*/'project1')/*END*/
+  /*IF projectNames != null && projectNames.length*/AND project_name IN (/*projectNames*/'project1')/*END*/
   /*IF statuses != null && statuses.length*/AND status IN (/*statuses*/1)/*END*/
 /*END*/
 ORDER BY started_at DESC
@@ -277,7 +277,7 @@ console.log('Parameters:', params);
 
 **Resulting SQL & Parameters:**
 
-```
+```sql
 SQL:
   SELECT
     id,
@@ -290,30 +290,6 @@ SQL:
 
 Parameters:
   [ 123, 'project_a', 'project_b' ]
-```
-
-###### ⚠️ PostgreSQL-specific notes
-
-When using PostgreSQL-specific features such as `ANY` with array parameters,
-the SQL template must be written in a form that is valid PostgreSQL SQL by itself.
-
-For example, to use `ANY` with a text array, write the array literal directly in the template.
-The builder will replace the **entire array literal** with a single bind placeholder:
-
-```sql
-AND user_id = ANY (/*userIds*/ARRAY['U100','U101']::text[])
-```
-
-This will be rendered as:
-
-```sql
-AND user_id = ANY ($1::text[])
-```
-
-with the following bind parameters:
-
-```typescript
-[ ['U100', 'U101'] ]
 ```
 
 ##### Example 4: INSERT with NULL normalization
@@ -369,7 +345,7 @@ console.log('Parameters2:', params2);
 
 **Result:**
 
-```text
+```sql
 SQL1:
   INSERT INTO users (
     user_id,
@@ -428,7 +404,7 @@ WHERE
 | IF | `/*IF condition*/ ... /*END*/` | Includes the enclosed SQL fragment only if the `condition` evaluates to a truthy value. The condition is a JavaScript expression evaluated against the `entity` object. |
 | BEGIN | `/*BEGIN*/ ... /*END*/` | A wrapper block, typically for a `WHERE` clause. The entire block is included only if at least one `/*IF...*/` statement inside it is evaluated as true. This intelligently removes the `WHERE` keyword if no filters apply. |
 | FOR | `/*FOR item:collection*/ ... /*END*/` | Iterates over the `collection` array from the `entity`. For each loop, the enclosed SQL is generated, and the current value is available as the `item` variable for binding. |
-| Bind Variable | `/*variable*/` | Binds a value from the `entity`. It automatically formats values: strings are quoted (`'value'`), numbers are left as is (`123`), and arrays are turned into comma-separated lists in parentheses (`('a','b',123)`). |
+| Bind Variable | `/*variable*/` | Binds a value from the `entity`. Strings are quoted `'value'`, numbers are rendered as-is `123`. When the value is an array, elements are expanded into a comma-separated list. The template may contain zero or one dummy expression after a bind tag. If present, only a single SQL expression is allowed. Multiple comma-separated dummy values are not supported. |
 | END | `/*END*/` | Marks the end of an `IF`, `BEGIN`, or `FOR` block. |
 
 ---
@@ -474,7 +450,106 @@ The `condition` inside an `/*IF ...*/` tag is evaluated as a JavaScript expressi
 
 ---
 
-### 📜 License
+#### Vendor Dependency TIPS
+
+**PostgreSQL**
+
+When using PostgreSQL-specific features such as `ANY` with array parameters,
+the SQL template must be written in a form that is valid PostgreSQL SQL by itself.
+
+For example, to use `ANY` with a text array, write the array literal directly in the template.
+The builder will replace the **entire array literal** with a single bind placeholder:
+
+```sql
+AND user_id = ANY (/*userIds*/ARRAY['U100','U101']::text[])
+```
+
+This will be rendered as:
+
+```sql
+AND user_id = ANY ($1::text[])
+```
+
+with the following bind parameters:
+
+```typescript
+[ ['U100', 'U101'] ]
+```
+
+**MSSQL**
+
+When working with a large number of values for an IN condition in SQL Server, directly expanding them into:
+
+```sql
+WHERE UserID IN (1, 2, 3, ..., N)
+```
+
+may lead to:
+
+* **No Parameter Limits:** Counts as only 1 parameter regardless of array size.
+* **Better Performance:** Avoids the overhead of parsing thousands of individual parameters.
+* **Type Safety:** `OPENJSON` allows explicit type mapping (e.g., `INT`, `UNIQUEIDENTIFIER`).
+
+SQL Server has a maximum limit of 2,100 parameters per RPC request. When using large IN (...) clauses via drivers like `Tedious`, each item in the list is typically treated as a separate parameter.
+
+**Template:**
+
+```sql
+DECLARE @jsonUserIds NVARCHAR(MAX) = N'[/*userIds*/100]';
+
+WITH T AS (
+  SELECT value AS UserID
+  FROM OPENJSON(@jsonUserIds)
+)
+SELECT
+  U.UserID,
+  U.Status,
+  U.CreatedAt,
+  U.UpdatedAt
+FROM Users U
+JOIN T
+  ON U.UserID = T.UserID
+```
+
+**Code:**
+
+```typescript
+const template = '...'; // above SQL
+const builder = new SQLBuilder();
+const [sql, params] = builder.generateParameterizedSQL(template, { userIds: [100, 101, 102, 103] }, 'mssql');
+console.log(sql, params);
+```
+
+**Result:**
+
+```sql
+SQL:
+  DECLARE @jsonUserIds NVARCHAR(MAX) = @userIds;
+
+  WITH T AS (
+    SELECT value AS UserID
+    FROM OPENJSON(@jsonUserIds)
+  )
+  SELECT
+    U.UserID,
+    U.Status,
+    U.CreatedAt,
+    U.UpdatedAt
+  FROM Users U
+  JOIN T
+    ON U.UserID = T.UserID
+
+Parameters:
+  {
+    userIds: '[100,101,102,103]'
+  }
+```
+
+By passing the array as a single JSON parameter and expanding it with OPENJSON, you can avoid large IN (...) lists and handle arbitrarily large collections in a clean and scalable way.
+
+---
+
+#### 📜 License
 
 This project is licensed under the MIT License. See the [LICENSE](https://opensource.org/licenses/MIT) file for details.
 

@@ -509,23 +509,26 @@ describe('@/server/common/sql-builder.ts', () => {
         const template = `
           SELECT * FROM table
           WHERE
-            user_id = /*userId*/,
-            AND remarks = /*remarks*/,
-            AND verified IS TRUE,
+            user_id = /*userId*/
+            AND remarks = /*remarks*/
+            AND verified IS TRUE
+            AND status IN (/*statuses*/)
             AND /*verifiedAt*/ < verified_at
         `;
         const bindEntity = {
           userId: 12345,
           remarks: 'aaa,bbb,ccc',
+          statuses: [1, 2, 3],
           verifiedAt: '2025-07-05'
         };
         const sql = builder.generateSQL(template, bindEntity);
         expect(formatSQL(sql)).toBe(formatSQL(`
           SELECT * FROM table
           WHERE
-            user_id = 12345,
-            AND remarks = 'aaa,bbb,ccc',
-            AND verified IS TRUE,
+            user_id = 12345
+            AND remarks = 'aaa,bbb,ccc'
+            AND verified IS TRUE
+            AND status IN (1,2,3)
             AND '2025-07-05' < verified_at
         `));
       });

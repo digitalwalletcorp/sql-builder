@@ -231,7 +231,8 @@ If you need to use database-specific features, use `generateParameterizedSQL` wi
 
 ##### `generateParameterizedSQL(template: string, entity: Record<string, any>, bindType?: 'postgres' | 'mysql' | 'oracle' | 'mssql'): [string, Array<any> | Record<string, any>]`
 
-Generates a SQL string with placeholders for prepared statements and returns an array of bind parameters. This method is crucial for preventing SQL injection.
+Generates a SQL string with placeholders for prepared statements and returns bind parameters.
+This method prevents SQL injection for value bindings by using parameterized queries.
 
 * `template`: The SQL template string containing S2Dao-style comments.
 * `entity`: A data object whose properties are used for evaluating conditions (`/*IF...*/`) and binding values.

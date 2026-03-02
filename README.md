@@ -2,7 +2,7 @@
 
 [![NPM Version](https://img.shields.io/npm/v/%40digitalwalletcorp%2Fsql-builder)](https://www.npmjs.com/package/@digitalwalletcorp/sql-builder) [![License](https://img.shields.io/npm/l/%40digitalwalletcorp%2Fsql-builder)](https://opensource.org/licenses/MIT) [![Build Status](https://img.shields.io/github/actions/workflow/status/digitalwalletcorp/sql-builder/ci.yml?branch=main)](https://github.com/digitalwalletcorp/sql-builder/actions) [![Test Coverage](https://img.shields.io/codecov/c/github/digitalwalletcorp/sql-builder.svg)](https://codecov.io/gh/digitalwalletcorp/sql-builder)
 
-Inspired by Java's S2Dao, this TypeScript/JavaScript library dynamically generates SQL. It embeds entity objects into SQL templates, simplifying complex query construction and enhancing readability. Ideal for flexible, type-safe SQL generation without a full ORM. It efficiently handles dynamic `WHERE` clauses, parameter binding, and looping, reducing boilerplate code.
+Inspired by Java's **S2Dao its successor Doma**, this TypeScript/JavaScript library dynamically generates SQL. It embeds entity objects into SQL templates, simplifying complex query construction and enhancing readability. Ideal for flexible, type-safe SQL generation without a full ORM. It efficiently handles dynamic `WHERE` clauses, parameter binding, and looping, reducing boilerplate code.
 
 The core mechanism involves parsing special SQL comments (`/*IF ...*/`, `/*BEGIN...*/`, etc.) in a template and generating a final query based on a provided data object.
 
@@ -47,23 +47,23 @@ console.log(sql);
 
 > 💡 Tip: If you upgrade a template from v1.x to v2.x, make sure to add parentheses around any IN bind variables to avoid SQL syntax errors.
 
-### ✨ Features
+#### ✨ Features
 
 * Dynamic Query Generation: Build complex SQL queries dynamically at runtime.
-* Conditional Logic (`/*IF...*/`): Automatically include or exclude SQL fragments based on JavaScript conditions evaluated against your data.
+* Conditional Logic (`/*IF...*/`, `/*ELSEIF...*/`, `/*ELSE...*/`): Robust conditional branching. Support for complex `if-elseif-else` structures, including nesting.
 * Optional Blocks (`/*BEGIN...*/`): Wrap entire clauses (like `WHERE`) that are only included if at least one inner `/*IF...*/` condition is met.
 * Looping (`/*FOR...*/`): Generate repetitive SQL snippets by iterating over arrays in your data (e.g., for multiple `LIKE` or `OR` conditions).
 * Simple Parameter Binding: Easily bind values from your data object into the SQL query.
 * Zero Dependencies: A single, lightweight class with no external library requirements.
 
-### ✅ Compatibility
+#### ✅ Compatibility
 
 This library is written in pure, environment-agnostic JavaScript/TypeScript and has zero external dependencies, allowing it to run in various environments.
 
 - ✅ **Node.js**: Designed and optimized for server-side use in any modern Node.js environment. This is the **primary and recommended** use case.
 - ⚠️ **Browser-like Environments (Advanced)**: While technically capable of running in browsers (e.g., for use with in-browser databases like SQLite via WebAssembly), generating SQL on the client-side to be sent to a server **is a significant security risk and is strongly discouraged** in typical web applications.
 
-### 📦 Instllation
+#### 📦 Installation
 
 ```bash
 npm install @digitalwalletcorp/sql-builder
@@ -89,7 +89,7 @@ SELECT
 FROM activity
 /*BEGIN*/WHERE
   1 = 1
-  /*IF projectNames != null && projectNames.length*/AND project_name IN (*projectNames*/'project1')/*END*/
+  /*IF projectNames != null && projectNames.length*/AND project_name IN (/*projectNames*/'project1')/*END*/
   /*IF statuses != null && statuses.length*/AND status IN (/*statuses*/1)/*END*/
 /*END*/
 ORDER BY started_at DESC
@@ -151,7 +151,75 @@ ORDER BY started_at DESC
 LIMIT 100
 ```
 
-##### Example 2: FOR Loop
+##### Example 2: Dynamic WHERE Clause with `ELSEIF/ELSE`
+
+**Template:**
+
+```sql
+SELECT
+  *
+FROM users
+WHERE
+  1 = 1
+  /*IF role === 'admin'*/
+    AND access_level = 99
+  /*ELSEIF role === 'editor'*/
+    AND access_level = 50
+  /*ELSE*/
+    AND access_level = 1
+  /*END*/
+```
+
+**Code:**
+
+```typescript
+import { SQLBuilder } from '@digitalwalletcorp/sql-builder';
+
+const builder = new SQLBuilder();
+
+const template = `...`; // The SQL template from above
+
+const bindEntity1 = {
+  role: 'editor'
+};
+
+// SCENARIO A: Matched with ELSEIF condition
+const sql = builder.generateSQL(template, bindEntity1);
+console.log(sql1);
+
+// SCENARIO B: Matched with ELSE condition
+const bindEntity2 = {
+  role: 'read'
+};
+const sql2 = builder.generateSQL(template, bindEntity2);
+console.log(sql2);
+```
+
+**Resulting SQL:**
+
+* SQL 1 (Scenario A)
+
+```sql
+SELECT
+  *
+FROM users
+WHERE
+  1 = 1
+  AND access_level = 50
+```
+
+* SQL 2 (Scenario B)
+
+```sql
+SELECT
+  *
+FROM users
+WHERE
+  1 = 1
+  AND access_level = 1
+```
+
+##### Example 3: FOR Loop
 
 Use a `/*FOR...*/` block to iterate over an array and generate SQL for each item. This is useful for building multiple `LIKE` conditions.
 
@@ -231,7 +299,8 @@ If you need to use database-specific features, use `generateParameterizedSQL` wi
 
 ##### `generateParameterizedSQL(template: string, entity: Record<string, any>, bindType?: 'postgres' | 'mysql' | 'oracle' | 'mssql'): [string, Array<any> | Record<string, any>]`
 
-Generates a SQL string with placeholders for prepared statements and returns an array of bind parameters. This method is crucial for preventing SQL injection.
+Generates a SQL string with placeholders for prepared statements and returns bind parameters.
+This method prevents SQL injection for value bindings by using parameterized queries.
 
 * `template`: The SQL template string containing S2Dao-style comments.
 * `entity`: A data object whose properties are used for evaluating conditions (`/*IF...*/`) and binding values.
@@ -241,7 +310,7 @@ Generates a SQL string with placeholders for prepared statements and returns an 
 * `sql`: The generated SQL query with appropriate placeholders.
 * `bindParams`: An array of values (for PostgreSQL/MySQL) or an object of named values (for Oracle/SQL Server) to bind to the placeholders.
 
-##### Example 3: Parameterized SQL with PostgreSQL
+##### Example 4: Parameterized SQL with PostgreSQL
 
 **Template:**
 
@@ -277,7 +346,7 @@ console.log('Parameters:', params);
 
 **Resulting SQL & Parameters:**
 
-```
+```sql
 SQL:
   SELECT
     id,
@@ -292,31 +361,7 @@ Parameters:
   [ 123, 'project_a', 'project_b' ]
 ```
 
-###### ⚠️ PostgreSQL-specific notes
-
-When using PostgreSQL-specific features such as `ANY` with array parameters,
-the SQL template must be written in a form that is valid PostgreSQL SQL by itself.
-
-For example, to use `ANY` with a text array, write the array literal directly in the template.
-The builder will replace the **entire array literal** with a single bind placeholder:
-
-```sql
-AND user_id = ANY (/*userIds*/ARRAY['U100','U101']::text[])
-```
-
-This will be rendered as:
-
-```sql
-AND user_id = ANY ($1::text[])
-```
-
-with the following bind parameters:
-
-```typescript
-[ ['U100', 'U101'] ]
-```
-
-##### Example 4: INSERT with NULL normalization
+##### Example 5: INSERT with NULL normalization
 
 **Template:**
 
@@ -369,7 +414,7 @@ console.log('Parameters2:', params2);
 
 **Result:**
 
-```text
+```sql
 SQL1:
   INSERT INTO users (
     user_id,
@@ -402,10 +447,8 @@ Parameters2:
 
 **Notes:**
 
-- For both `generateSQL` and `generateParameterizedSQL`,
-  `undefined` and `null` values are normalized to SQL `NULL`.
-- This behavior is especially important for INSERT / UPDATE statements,
-  where the number of columns and values must always match.
+- For both `generateSQL` and `generateParameterizedSQL`, `undefined` and `null` values are normalized to SQL `NULL`.
+- This behavior is especially important for INSERT / UPDATE statements, where the number of columns and values must always match.
 - NOT NULL constraint violations are intentionally left to the database.
 - If you need to handle `IS NULL` conditions explicitly, you can use `/*IF */` blocks as shown below:
 
@@ -426,9 +469,11 @@ WHERE
 | Tag | Syntax | Description |
 | --- | --- | --- |
 | IF | `/*IF condition*/ ... /*END*/` | Includes the enclosed SQL fragment only if the `condition` evaluates to a truthy value. The condition is a JavaScript expression evaluated against the `entity` object. |
-| BEGIN | `/*BEGIN*/ ... /*END*/` | A wrapper block, typically for a `WHERE` clause. The entire block is included only if at least one `/*IF...*/` statement inside it is evaluated as true. This intelligently removes the `WHERE` keyword if no filters apply. |
+| ELSEIF | `/*ELSEIF condition*/ ...` | Evaluates only if the preceding `IF` or `ELSEIF` was false. Must be placed inside an `IF` block. |
+| ELSE | `/*ELSE*/ ...`	| Included if all preceding `IF` and `ELSEIF` conditions in the block were false. |
+| BEGIN | `/*BEGIN*/ ... /*END*/` | A wrapper block, typically for a `WHERE` clause. The entire block is included only if at least one inner `IF/ELSEIF/ELSE` or `FOR` block is active. This intelligently removes the `WHERE` keyword if no filters apply. |
 | FOR | `/*FOR item:collection*/ ... /*END*/` | Iterates over the `collection` array from the `entity`. For each loop, the enclosed SQL is generated, and the current value is available as the `item` variable for binding. |
-| Bind Variable | `/*variable*/` | Binds a value from the `entity`. It automatically formats values: strings are quoted (`'value'`), numbers are left as is (`123`), and arrays are turned into comma-separated lists in parentheses (`('a','b',123)`). |
+| Bind Variable | `/*variable*/` | Binds a value from the `entity`. Strings are quoted `'value'`, numbers are rendered as-is `123`. When the value is an array, elements are expanded into a comma-separated list. The template may contain zero or one dummy expression after a bind tag. If present, only a single SQL expression is allowed. Multiple comma-separated dummy values are not supported. |
 | END | `/*END*/` | Marks the end of an `IF`, `BEGIN`, or `FOR` block. |
 
 ---
@@ -474,16 +519,105 @@ The `condition` inside an `/*IF ...*/` tag is evaluated as a JavaScript expressi
 
 ---
 
-### 📜 License
+#### Vendor Dependency TIPS
+
+**PostgreSQL**
+
+When using PostgreSQL-specific features such as `ANY` with array parameters,
+the SQL template must be written in a form that is valid PostgreSQL SQL by itself.
+
+For example, to use `ANY` with a text array, write the array literal directly in the template.
+The builder will replace the **entire array literal** with a single bind placeholder:
+
+```sql
+AND user_id = ANY (/*userIds*/ARRAY['U100','U101']::text[])
+```
+
+This will be rendered as:
+
+```sql
+AND user_id = ANY ($1::text[])
+```
+
+with the following bind parameters:
+
+```typescript
+[ ['U100', 'U101'] ]
+```
+
+**MSSQL**
+
+When working with a large number of values for an IN condition in SQL Server, directly expanding them into:
+
+```sql
+WHERE UserID IN (1, 2, 3, ..., N)
+```
+
+may lead to:
+
+* **No Parameter Limits:** Counts as only 1 parameter regardless of array size.
+* **Better Performance:** Avoids the overhead of parsing thousands of individual parameters.
+* **Type Safety:** `OPENJSON` allows explicit type mapping (e.g., `INT`, `UNIQUEIDENTIFIER`).
+
+SQL Server has a maximum limit of 2,100 parameters per RPC request. When using large IN (...) clauses via drivers like `Tedious`, each item in the list is typically treated as a separate parameter.
+
+**Template:**
+
+```sql
+DECLARE @jsonUserIds NVARCHAR(MAX) = N'[/*userIds*/100]';
+
+WITH T AS (
+  SELECT value AS UserID
+  FROM OPENJSON(@jsonUserIds)
+)
+SELECT
+  U.UserID,
+  U.Status,
+  U.CreatedAt,
+  U.UpdatedAt
+FROM Users U
+JOIN T
+  ON U.UserID = T.UserID
+```
+
+**Code:**
+
+```typescript
+const template = '...'; // above SQL
+const builder = new SQLBuilder();
+const [sql, params] = builder.generateParameterizedSQL(template, { userIds: [100, 101, 102, 103] }, 'mssql');
+console.log(sql, params);
+```
+
+**Result:**
+
+```sql
+SQL:
+  DECLARE @jsonUserIds NVARCHAR(MAX) = @userIds;
+
+  WITH T AS (
+    SELECT value AS UserID
+    FROM OPENJSON(@jsonUserIds)
+  )
+  SELECT
+    U.UserID,
+    U.Status,
+    U.CreatedAt,
+    U.UpdatedAt
+  FROM Users U
+  JOIN T
+    ON U.UserID = T.UserID
+
+Parameters:
+  {
+    userIds: '[100,101,102,103]'
+  }
+```
+
+By passing the array as a single JSON parameter and expanding it with OPENJSON, you can avoid large IN (...) lists and handle arbitrarily large collections in a clean and scalable way.
+
+---
+
+#### 📜 License
 
 This project is licensed under the MIT License. See the [LICENSE](https://opensource.org/licenses/MIT) file for details.
-
-### 🎓 Advanced Usage & Examples
-
-This README covers the basic usage of the library. For more advanced use cases and a comprehensive look at how to verify its behavior, the test suite serves as practical and up-to-date documentation.
-
-We recommend Browse the test files to understand how to handle and verify the sequential, race-condition-free execution in various scenarios.
-
-You can find the test case in the `/test/specs` directory of our GitHub repository.
-
-- **[Explore our Test Suite for Advanced Examples](https://github.com/digitalwalletcorp/sql-builder/tree/main/test/specs)**

@@ -1,7 +1,7 @@
 import * as common from './common';
 import { AbstractSyntaxTree } from './abstract-syntax-tree';
 
-type TagType = 'BEGIN' | 'IF' | 'FOR' | 'END' | 'BIND';
+type TagType = 'BEGIN' | 'IF' | 'ELSEIF' | 'ELSE' | 'FOR' | 'BIND' | 'TEXT' | 'END';
 type ExtractValueType<T extends 'string' | 'array' | 'object'>
   = T extends 'string'
     ? string | undefined
@@ -38,18 +38,53 @@ type BindParameterType<T extends BindType>
   : T extends 'mssql' ? Record<string, any>
   : undefined;
 
-interface TagContext {
-  type: TagType;
-  match: string;
-  contents: string;
+// すべてのタグの基底
+interface BaseTagContext {
   startIndex: number;
   endIndex: number;
-  sub: TagContext[];
-  parent: TagContext | null;
-  status: number; // 0: 初期、10: 成立 IFで条件が成立したかを判断するもの
-  isPgArray?: boolean; // PostgreSQLがサポートする配列構文(ANY ($1::text[]) など)を示すフラグ
-  pgArrayCast?: string; // ::text[] などのCAST部分を保持する
+  parent: ParentTagContext | null;
+  match: string;
 }
+
+// 子要素を持つ「親」になれるタグの共通定義
+interface ParentTagContext extends BaseTagContext {
+  type: 'BEGIN' | 'IF' | 'ELSEIF' | 'ELSE' | 'FOR';
+  contents: string;
+  sub: TagContext[];
+  conditionMatched: boolean; // この要素自体の条件が成立したか
+  childConditionMatched: boolean; // 子要素のいずれかの条件が成立したか(BEGIN/IF用)
+}
+
+interface ContainerTagContext extends ParentTagContext {
+  type: 'BEGIN' | 'FOR';
+}
+
+interface BranchTagContext extends ParentTagContext {
+  type: 'IF' | 'ELSEIF' | 'ELSE';
+}
+
+interface BindTagContext extends BaseTagContext {
+  type: 'BIND';
+  contents: string;
+  isPgArray?: boolean;
+  pgArrayCast?: string;
+}
+
+interface TextTagContext extends BaseTagContext {
+  type: 'TEXT';
+  contents: string;
+}
+
+interface EndTagContext extends BaseTagContext {
+  type: 'END';
+}
+
+type TagContext
+  = ContainerTagContext
+  | BranchTagContext
+  | TextTagContext
+  | BindTagContext
+  | EndTagContext;
 
 interface SharedIndex {
   index: number;
@@ -195,45 +230,100 @@ export class SQLBuilder {
     const matches = template.matchAll(this.REGEX_TAG_PATTERN);
 
     // まず最初にREGEX_TAG_PATTERNで解析した情報をそのままフラットにTagContextの配列に格納
-    let pos = 0;
+    let lastIndex = 0;
     const tagContexts: TagContext[] = [];
     for (const match of matches) {
       const matchContent = match[0];
       const index = match.index;
-      pos = index + 1;
-      const tagContext: TagContext = {
+
+      if (lastIndex < index) {
+        tagContexts.push({
+          type: 'TEXT',
+          match: '',
+          contents: template.substring(lastIndex, index),
+          startIndex: lastIndex,
+          endIndex: index,
+          parent: null
+        });
+      }
+
+      let tagContext: TagContext = {
         type: 'BIND', // ダミーの初期値。後続処理で適切なタイプに変更する。
-        match: matchContent,
         contents: '',
         startIndex: index,
         endIndex: index + matchContent.length,
-        sub: [],
         parent: null,
-        status: 0
+        match: matchContent
       };
       switch (true) {
         case matchContent === '/*BEGIN*/': {
-          tagContext.type = 'BEGIN';
+          tagContext = {
+            ...tagContext,
+            type: 'BEGIN',
+            sub: [],
+            conditionMatched: false,
+            childConditionMatched: false
+          } as ContainerTagContext;
           break;
         }
         case matchContent.startsWith('/*IF'): {
-          tagContext.type = 'IF';
+          tagContext = {
+            ...tagContext,
+            type: 'IF',
+            sub: [],
+            conditionMatched: false,
+            childConditionMatched: false
+          } as BranchTagContext;
           const contentMatcher = matchContent.match(/^\/\*IF\s+(.*?)\*\/$/);
           tagContext.contents = contentMatcher && contentMatcher[1] || '';
           break;
         }
+        case matchContent.startsWith('/*ELSEIF'): {
+          tagContext = {
+            ...tagContext,
+            type: 'ELSEIF',
+            sub: [],
+            conditionMatched: false,
+            childConditionMatched: false
+          } as BranchTagContext;
+          const contentMatcher = matchContent.match(/^\/\*ELSEIF\s+(.*?)\*\/$/);
+          tagContext.contents = contentMatcher && contentMatcher[1] || '';
+          break;
+        }
+        case matchContent.startsWith('/*ELSE*/'): {
+          tagContext = {
+            ...tagContext,
+            type: 'ELSE',
+            sub: [],
+            conditionMatched: false,
+            childConditionMatched: false
+          } as BranchTagContext;
+          break;
+        }
         case matchContent.startsWith('/*FOR'): {
-          tagContext.type = 'FOR';
+          tagContext = {
+            ...tagContext,
+            type: 'FOR',
+            sub: [],
+            conditionMatched: false,
+            childConditionMatched: false
+          } as ContainerTagContext;
           const contentMatcher = matchContent.match(/^\/\*FOR\s+(.*?)\*\/$/);
           tagContext.contents = contentMatcher && contentMatcher[1] || '';
           break;
         }
         case matchContent === '/*END*/': {
-          tagContext.type = 'END';
+          tagContext = {
+            ...tagContext,
+            type: 'END'
+          } as EndTagContext;
           break;
         }
         default: {
-          tagContext.type = 'BIND';
+          tagContext = {
+            ...tagContext,
+            type: 'BIND'
+          } as BindTagContext;
           const contentMatcher = matchContent.match(/\/\*(.*?)\*\//);
           tagContext.contents = contentMatcher && contentMatcher[1]?.trim() || '';
           // ダミー値の終了位置をendIndexに設定
@@ -253,26 +343,59 @@ export class SQLBuilder {
           }
         }
       }
+
       tagContexts.push(tagContext);
+
+      lastIndex = tagContext.endIndex;
     }
 
-    // できあがったTagContextの配列から、BEGEN、IFの場合は次の対応するENDが出てくるまでをsubに入れ直して構造化し、
-    // 以下のような構造の変更する
+    // ループを抜けた後に残った部分をTEXTタグとして追加
+    if (lastIndex < template.length) {
+      tagContexts.push({
+        type: 'TEXT',
+        match: '',
+        contents: template.substring(lastIndex),
+        startIndex: lastIndex,
+        endIndex: template.length,
+        parent: null
+      });
+    }
+
+    // できあがったTagContextの配列から、
+    // BEGENの場合は対応するENDが出てくるまで、
+    // IFの場合は次の対応するENDが出てくるまでをsubに入れ直して構造化し、
+    // 以下のような構造に変更する
     /**
      * ```
      * BEGIN
      *   ├ IF
-     *     ├ BIND
-     *     ├ BIND
+     *     ├ BIND(無いこともある)
+     *     ├ ELSEIF
+     *       ├ BIND(無いこともある)
+     *     ├ ELSE
+     *       ├ BIND(無いこともある)
      *     ├ END
      *   ├ BIND
      * END
      * ```
      */
-    const parentTagContexts: TagContext[] = [];
+    const parentTagContexts: ParentTagContext[] = [];
     const newTagContexts: TagContext[] = [];
     for (const tagContext of tagContexts) {
       switch (tagContext.type) {
+        case 'TEXT':
+        case 'BIND': {
+          const parentTagContext = parentTagContexts[parentTagContexts.length - 1];
+          if (parentTagContext) {
+            // 親タグがある
+            tagContext.parent = parentTagContext;
+            parentTagContext.sub.push(tagContext);
+          } else {
+            // 親タグがない(最上位)
+            newTagContexts.push(tagContext);
+          }
+          break;
+        }
         case 'BEGIN':
         case 'IF':
         case 'FOR': {
@@ -289,23 +412,42 @@ export class SQLBuilder {
           parentTagContexts.push(tagContext);
           break;
         }
+        case 'ELSEIF':
+        case 'ELSE': {
+          const ifTagContext = this.findParentTagContext(parentTagContexts[parentTagContexts.length - 1], 'IF');
+          if (ifTagContext) {
+            // 親タグ(IF)がある
+            tagContext.parent = ifTagContext;
+            ifTagContext.sub.push(tagContext);
+          } else {
+            throw new Error(`[SQLBuilder] ${tagContext.type} must be inside IF.`);
+          }
+          // 後続処理で自身が親になるので自身を追加
+          parentTagContexts.push(tagContext); // これは暫定的なものなのでENDで削除する必要がある
+          break;
+        }
         case 'END': {
-          const parentTagContext = parentTagContexts.pop()!;
-          // ENDのときは必ず対応するIF/BEGINがあるので、親のsubに追加
+          let parentTagContext = parentTagContexts[parentTagContexts.length - 1];
+          if (!parentTagContext) {
+            throw new Error(`[SQLBuilder] 'END' tag without corresponding parent.`);
+          }
+
+          if (parentTagContext.type === 'ELSEIF' || parentTagContext.type === 'ELSE') {
+            // 暫定追加されたELSEIF/ELSEを除去
+            while(parentTagContexts.length && ['ELSEIF', 'ELSE'].includes(parentTagContexts[parentTagContexts.length - 1].type)) {
+              parentTagContexts.pop();
+            }
+            parentTagContext = parentTagContexts[parentTagContexts.length - 1];
+          }
           tagContext.parent = parentTagContext;
           parentTagContext.sub.push(tagContext);
+
+          parentTagContexts.pop();
           break;
         }
         default: {
-          const parentTagContext = parentTagContexts[parentTagContexts.length - 1];
-          if (parentTagContext) {
-            // 親タグがある
-            tagContext.parent = parentTagContext;
-            parentTagContext.sub.push(tagContext);
-          } else {
-            // 親タグがない(最上位)
-            newTagContexts.push(tagContext);
-          }
+          // 型定義にない型という扱いになるのでanyキャストする(到達不可能？)
+          throw new Error(`[SQLBuilder] Unknown TagType '${(tagContext as any).type}`);
         }
       }
     }
@@ -319,14 +461,14 @@ export class SQLBuilder {
    * @param {SharedIndex} pos 現在処理している文字列の先頭インデックス
    * @param {string} template
    * @param {Record<string, any>} entity
-   * @param {TagContext[]} tagContexts
+   * @param {(TagContext | ParentTagContext)[]} tagContexts
    * @param {*} [options]
    *   ├ bindType BindType
    *   ├ bindIndex number
    *   ├ bindParams BindParameterType<T>
    * @returns {string}
    */
-  private parse<T extends BindType>(pos: SharedIndex, template: string, entity: Record<string, any>, tagContexts: TagContext[], options?: {
+  private parse<T extends BindType>(pos: SharedIndex, template: string, entity: Record<string, any>, tagContexts: (TagContext | ParentTagContext)[], options?: {
     bindType: T,
     bindIndex: number,
     bindParams: BindParameterType<T>
@@ -334,6 +476,14 @@ export class SQLBuilder {
     let result = '';
     for (const tagContext of tagContexts) {
       switch (tagContext.type) {
+        case 'TEXT': {
+          // テキストは無条件に書き出し
+          // 改行だけなど、trimすると空になる文字列もあるが、
+          // どの部分がスキップされたのかわかるようにあえて残すことにする
+          result += tagContext.contents;
+          pos.index = tagContext.endIndex;
+          break;
+        }
         case 'BEGIN': {
           result += template.substring(pos.index, tagContext.startIndex);
           pos.index = tagContext.endIndex;
@@ -341,45 +491,92 @@ export class SQLBuilder {
           const beginBlockResult = this.parse(pos, template, entity, tagContext.sub, options);
           // BEGIN内のIF、FORのいずれかで成立したものがあった場合は結果を出力
           if (tagContext.sub.some(sub =>
-            (sub.type === 'IF' || sub.type === 'FOR') && sub.status === 10
+            (sub.type === 'IF' || sub.type === 'FOR') && sub.conditionMatched
           )) {
             result += beginBlockResult;
           }
           break;
         }
         case 'IF': {
-          result += template.substring(pos.index, tagContext.startIndex);
-          pos.index = tagContext.endIndex;
-          if (this.evaluateCondition(tagContext.contents, entity)) {
-            // IF条件が成立する場合はsubに対して再帰呼び出し
-            tagContext.status = 10; // 成立(→/*BEGIN*/を使っている場合の判定条件になる)
-            // IFの結果自体は他の要素に影響されないので直接resultに還元可能
-            result += this.parse(pos, template, entity, tagContext.sub, options);
-          } else {
-            // IF条件が成立しない場合は再帰呼び出しせず、subのENDタグのendIndexをposに設定
+          const conditionMatched = this.evaluateCondition(tagContext.contents, entity);
+          if (conditionMatched) {
+            tagContext.conditionMatched = true; // 自身の評価結果
+            pos.index = tagContext.endIndex;
+            // 条件が成立したので、自身のsubにある条件タグを排除する
+            const children = tagContext.sub.filter(a => a.type !== 'ELSEIF' && a.type !== 'ELSE');
+            result += this.parse(pos, template, entity, children, options);
+
+            // IFタグからENDを探すときは、自身のsubの最後の要素
             const endTagContext = tagContext.sub[tagContext.sub.length - 1];
             pos.index = endTagContext.endIndex;
+          } else {
+            // 条件不成立
+            const nextBranch = tagContext.sub.find(a => a.type === 'ELSEIF' || a.type === 'ELSE');
+            if (nextBranch) {
+              pos.index = nextBranch.startIndex;
+              result += this.parse(pos, template, entity, [nextBranch], options);
+            } else {
+              // 次の条件がない場合はENDの後ろまでポインタを飛ばす
+              const endTagContext = tagContext.sub[tagContext.sub.length - 1];
+              pos.index = endTagContext.endIndex;
+            }
+          }
+          break;
+        }
+        case 'ELSEIF':
+        case 'ELSE': {
+          const conditionMatched = tagContext.type === 'ELSE' || this.evaluateCondition(tagContext.contents, entity);
+          if (conditionMatched) {
+            tagContext.conditionMatched = true; // 自身の評価結果
+            pos.index = tagContext.endIndex;
+            // 条件が成立したので、自身のsubにある条件タグを排除する
+            const children = tagContext.sub.filter(a => a.type !== 'ELSEIF' && a.type !== 'ELSE');
+            result += this.parse(pos, template, entity, children, options);
+
+            // ELSEIF/ELSEからIFを探すときは自身の親そのもの
+            const ifTagContext = tagContext.parent!;
+            ifTagContext.childConditionMatched = true; // 親が持っている評価結果にtrueを設定
+
+            // ELSEIF/ELSEからENDを探すときは、自身の兄弟の最後の要素
+            const endTagContext = this.seekSiblingTagContext(tagContext, 'END', 'next')!;
+            pos.index = endTagContext.endIndex;
+          } else {
+            // 条件不成立
+            const nextBranch = this.seekSiblingTagContext(tagContext, ['ELSEIF', 'ELSE'], 'next');
+            if (nextBranch) {
+              pos.index = nextBranch.startIndex;
+              result += this.parse(pos, template, entity, [nextBranch], options);
+            } else {
+              // 次の条件がない場合はENDの後ろまでポインタを飛ばす
+              const endTagContext = tagContext.sub[tagContext.sub.length - 1];
+              pos.index = endTagContext.endIndex;
+            }
           }
           break;
         }
         case 'FOR': {
-          result += template.substring(pos.index, tagContext.startIndex);
-          pos.index = tagContext.endIndex;
           const [bindName, collectionName] = tagContext.contents.split(':').map(a => a.trim());
           const array = common.getProperty(entity, collectionName);
           if (Array.isArray(array) && array.length) {
-            tagContext.status = 10; // 成立(→/*BEGIN*/を使っている場合の判定条件になる)
+            tagContext.conditionMatched = true;
             for (const value of array) {
-              // 再帰呼び出しによりposが進むので、ループのたびにposを戻す必要がある
-              pos.index = tagContext.endIndex;
-              // FORの結果自体は他の要素に影響されないので直接resultに還元可能
-              result += this.parse(pos, template, {
-                ...entity,
-                [bindName]: value
-              }, tagContext.sub, options);
-              // FORループするときは各行で改行する
+              const children = tagContext.sub.filter(a => a.type !== 'END');
+              result += this.parse(
+                pos,
+                template,
+                {
+                  ...entity,
+                  [bindName]: value
+                },
+                children,
+                options
+              );
               result += '\n';
             }
+
+            // FORのENDまでポインタを進める
+            const endTag = tagContext.sub[tagContext.sub.length - 1];
+            pos.index = endTag.endIndex;
           } else {
             // FORブロックを丸ごとスキップ
             const endTagContext = tagContext.sub[tagContext.sub.length - 1];
@@ -388,20 +585,26 @@ export class SQLBuilder {
           break;
         }
         case 'END': {
-          switch (true) {
-            case tagContext.parent?.type === 'BEGIN'
-                && tagContext.parent?.sub.some(a => ['IF', 'FOR'].includes(a.type))
-                && !tagContext.parent?.sub.some(a => ['IF', 'FOR'].includes(a.type) && a.status === 10):
-              // BEGINに対応するENDの場合
-              // ・子要素にIFまたはFORが存在する
-              // ・子要素のIFまたはFORにstatus=10(成功)を示すものが1つもない
-            case tagContext.parent?.type === 'IF' && tagContext.parent.status !== 10:
-              // IFに対応するENDの場合、IFのstatusがstatus=10(成功)になっていない
-            case tagContext.parent?.type === 'FOR' && tagContext.parent.status !== 10:
-              // FORに対応するENDの場合、FORのstatusがstatus=10(成功)になっていない
-              pos.index = tagContext.endIndex;
-              return '';
-            default:
+          const parent = tagContext.parent;
+          if (parent) {
+            switch (true) {
+              // BEGIN/IF/FORに対応するENDは、それぞれの処理で考慮すると複雑化するので
+              // すべてENDタグでどういう状態になったのは判定して動きを制御する
+              case parent.type === 'BEGIN'
+                  && parent.sub.some(a => a.type === 'IF' || a.type === 'FOR')
+                  && !parent.sub.some(a => a.type === 'IF' || a.type === 'FOR' && a.conditionMatched):
+                // BEGINに対応するENDの場合
+                // ・子要素にIFまたはFORが存在する
+                // ・子要素のIFまたはFORにstatus=10(成功)を示すものが1つもない
+              case parent.type === 'IF' && !parent.conditionMatched:
+                // IFに対応するENDの場合、IFのstatusがstatus=10(成功)になっていない
+              case parent.type === 'IF' && parent.sub.some(a => a.type === 'ELSEIF' || a.type === 'ELSE'):
+              case parent.type === 'FOR' && !parent.conditionMatched:
+                // FORに対応するENDの場合、FORのstatusがstatus=10(成功)になっていない
+                pos.index = tagContext.endIndex;
+                return result;
+              default:
+            }
           }
           result += template.substring(pos.index, tagContext.startIndex);
           pos.index = tagContext.endIndex;
@@ -410,14 +613,13 @@ export class SQLBuilder {
         case 'BIND': {
           result += template.substring(pos.index, tagContext.startIndex);
           pos.index = tagContext.endIndex;
+          const propertyResult = common.getPropertyResult(entity, tagContext.contents);
           // ★ UNKNOWN_TAG 判定
-          const hasProperty = Object.prototype.hasOwnProperty.call(entity, tagContext.contents);
-          if (!hasProperty) {
+          if (!propertyResult.exists) {
             // UNKNOWN_TAG → エラーを発行
-            throw new Error(`[SQLBuilder] The property "${tagContext.contents}" is not found in the bind entity. (Template index: ${tagContext.startIndex})`);
+            throw new Error(`[SQLBuilder] The property '${tagContext.contents}' is not found in the bind entity. (Template index: ${tagContext.startIndex})`);
           }
-          const rawValue = common.getProperty(entity, tagContext.contents);
-          const value = rawValue === undefined ? null : rawValue;
+          const value = propertyResult.value === undefined ? null : propertyResult.value;
           switch (options?.bindType) {
             case 'postgres': {
               // PostgreSQL形式の場合、$Nでバインドパラメータを展開
@@ -510,9 +712,73 @@ export class SQLBuilder {
       }
     }
 
+    if (tagContexts.length && tagContexts[0].parent) {
+      // IFタグ解析中のELSEIF/ELSEなどが残っている場合は以降の文字列を連結せず、IFの解析結果のみ返す
+      return result;
+    }
+
     // 最後に余った部分を追加する
     result += template.substring(pos.index);
     return result;
+  }
+
+  /**
+   * 指定したタグから親を遡り、指定したタグタイプのタグコンテキストを返す
+   * 見つからない場合はundefinedを返す
+   *
+   * @param {TagContext | ParentTagContext | null} tagContext
+   * @param {T} tagType
+   * @returns {(TagContext & { type: T }) | undefined}
+   */
+  private findParentTagContext<T extends TagType>(tagContext: TagContext | ParentTagContext | null, tagType: T): (TagContext & { type: T }) | undefined {
+    let targetTagContext = tagContext;
+    while (targetTagContext != null) {
+      if (targetTagContext.type === tagType) {
+        return targetTagContext as Extract<TagContext, { type: T }>;
+      }
+      targetTagContext = targetTagContext.parent;
+    }
+    return undefined;
+  }
+
+  /**
+   * 指定したタグの兄弟をたどり、指定したタグタイプのタグコンテキストを返す
+   * 見つからない場合はundefinedを返す
+   * ユースケースとしては、ELSEIF/ELSEから同じIFに属するENDを探す
+   *
+   * @param {TagContext} tagContext
+   * @param {TagType | TagType[]} tagType
+   * @param {'previous' | 'next'} direction
+   * @returns {TagContext | undefined}
+   */
+  private seekSiblingTagContext(tagContext: TagContext, tagType: TagType | TagType[], direction: 'previous' | 'next' = 'next'): TagContext | undefined {
+    const parent = tagContext.parent;
+    if (parent) {
+      // 自身が所属するインデックスを取得
+      const startIndex = parent.sub.indexOf(tagContext);
+      if (startIndex < 0) {
+        return undefined;
+      }
+      const tagTypes = Array.isArray(tagType) ? tagType : [tagType];
+      switch (direction) {
+        case 'previous':
+          for (let i = startIndex - 1; 0 <= i; i--) {
+            if (tagTypes.some(a => a === parent.sub[i].type)) {
+              return parent.sub[i];
+            }
+          }
+          break;
+        case 'next':
+          for (let i = startIndex + 1; i < parent.sub.length; i++) {
+            if (tagTypes.some(a => a === parent.sub[i].type)) {
+              return parent.sub[i];
+            }
+          }
+          break;
+        default:
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -637,7 +903,11 @@ export class SQLBuilder {
   private extractValue<T extends 'string' | 'array' | 'object' = 'string'>(property: string, entity: Record<string, any>, options?: {
     responseType?: T
   }): ExtractValueType<T> {
-    const value = common.getProperty(entity, property);
+    const propertyResult = common.getPropertyResult(entity, property);
+    if (!propertyResult.exists) {
+      throw new Error(`[SQLBuilder] The property '${property}' is not found in the entity: ${JSON.stringify(entity)}`);
+    }
+    const value = propertyResult.value;
     if (value == null) {
       return 'NULL' as ExtractValueType<T>;
     }

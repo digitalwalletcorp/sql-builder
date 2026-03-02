@@ -39,7 +39,7 @@ export class AbstractSyntaxTree {
   /**
    * 与えられた条件文字列を構文解析し、entityに対する条件として成立するか評価する
    *
-   * @param {string} condition "params != null && params.length > 10" のような条件
+   * @param {string} condition 'params != null && params.length > 10' のような条件
    * @param {Record<string, any>} entity
    * @returns {boolean}
    */
@@ -50,9 +50,8 @@ export class AbstractSyntaxTree {
       const result = this.evaluateRpn(rpnTokens, entity);
       return result;
     } catch (error: any) {
-      error.condition = condition;
-      error.entity = entity;
-      throw error;
+      const enhancedMessage = `[SQLBuilder] Failed to evaluate IF condition: '/*IF ${condition}*/'. ${error.message}`;
+      throw new Error(enhancedMessage);
     }
   }
 
@@ -239,7 +238,7 @@ export class AbstractSyntaxTree {
               output.push(op);
             }
             if (!foundLeftParen) {
-              throw new Error('[SQLBuilder.AbstractSyntaxTree] Mismatched parentheses');
+              throw new Error(`[SQLBuilder.AST] Mismatched parentheses: Found closing ')' without a matching '('. Check your IF condition syntax.`);;
             }
           }
           break;
@@ -250,7 +249,7 @@ export class AbstractSyntaxTree {
     while (operatorStack.length) {
       const op = operatorStack.pop()!;
       if (op.value === '(' || op.value === ')') {
-        throw new Error('[SQLBuilder.AbstractSyntaxTree] Mismatched parentheses');
+        throw new Error(`[SQLBuilder.AST] Mismatched parentheses: An extra '${op.value}' was found or a matching '(' is missing.`);
       }
       output.push(op);
     }

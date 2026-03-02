@@ -20,12 +20,15 @@ const formatSQL = (sql: string): string => {
   return str.trim().replace(/\r\n|\r|\n/g, ' ').replace(/\t/g, ' ').replace(/[ ]{2,}/g, ' ');
 }
 
-describe('@/server/common/sql-builder.ts', () => {
+describe('@/sql-builder.ts', () => {
+
   describe('generateSQL', () => {
+
+    const builder = new SQLBuilder();
+
     describe('Typical Test Cases', () => {
-      it('generateSQL.typical.001', () => {
+      it('generateSQL.typical.if.001', () => {
         // すべてのIF条件が成立する(BEGINあり)
-        const builder = new SQLBuilder();
         const template = `
           SELECT COUNT(*) AS cnt FROM activity
           /*BEGIN*/WHERE
@@ -53,9 +56,8 @@ describe('@/server/common/sql-builder.ts', () => {
             AND status IN (1,2)
         `));
       });
-      it('generateSQL.typical.002', () => {
+      it('generateSQL.typical.if.002', () => {
         // すべてのIF条件が成立する(BEGINなし)
-        const builder = new SQLBuilder();
         const template = `
           SELECT COUNT(*) AS cnt FROM activity
           WHERE
@@ -82,9 +84,8 @@ describe('@/server/common/sql-builder.ts', () => {
             AND status IN (1,2)
         `));
       });
-      it('generateSQL.typical.003', () => {
+      it('generateSQL.typical.if.003', () => {
         // IF条件の一部が成立しない
-        const builder = new SQLBuilder();
         const template = `
           SELECT COUNT(*) AS cnt FROM activity
           /*BEGIN*/WHERE
@@ -108,9 +109,8 @@ describe('@/server/common/sql-builder.ts', () => {
             AND status IN (1,2)
         `));
       });
-      it('generateSQL.typical.004', () => {
+      it('generateSQL.typical.if.004', () => {
         // IF条件のすべてが成立しない(BEGIN内が成立しない)
-        const builder = new SQLBuilder();
         const template = `
           SELECT COUNT(*) AS cnt FROM activity
           /*BEGIN*/WHERE
@@ -129,9 +129,152 @@ describe('@/server/common/sql-builder.ts', () => {
           SELECT COUNT(*) AS cnt FROM activity
         `));
       });
+
+      it ('generateSQL.typical.elseif.001', () => {
+        // IF条件に合致(ELSEIF/ELSEがある)
+        const template = `
+          SELECT * FROM users
+          WHERE
+            1 = 1
+            /*IF userName === 'a'*/AND userName = /*userName*/'AAA'
+            /*ELSEIF userName === 'b'*/AND userName = /*userName*/'BBB'
+            /*ELSE*/AND userName = /*default*/'CCC'
+            /*END*/
+        `;
+        const bindEntity = {
+          userName: 'a',
+          default: 'XXX'
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT * FROM users
+          WHERE
+            1 = 1
+            AND userName = 'a'
+        `));
+      });
+      it ('generateSQL.typical.elseif.002', () => {
+        // ELSEIF条件に合致
+        const template = `
+          SELECT * FROM users
+          WHERE
+            1 = 1
+            /*IF userName === 'a'*/AND userName = /*userName*/'AAA'
+            /*ELSEIF userName === 'b'*/AND userName = /*userName*/'BBB'
+            /*ELSE*/AND userName = /*default*/'CCC'
+            /*END*/
+        `;
+        const bindEntity = {
+          userName: 'b',
+          default: 'XXX'
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT * FROM users
+          WHERE
+            1 = 1
+            AND userName = 'b'
+        `));
+      });
+
+      it('generateSQL.typical.elseif.003', () => {
+        // 2番目のELSEIF条件に合致
+        const template = `
+          SELECT * FROM users
+          WHERE
+            1 = 1
+            /*IF userName === 'a'*/AND name = 'A'
+            /*ELSEIF userName === 'b'*/AND name = 'B'
+            /*ELSEIF userName === 'c'*/AND name = 'C'
+            /*ELSE*/AND name = 'D'
+            /*END*/
+        `;
+        const bindEntity = {
+          userName: 'c'
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT * FROM users
+          WHERE
+            1 = 1
+            AND name = 'C'
+        `));
+      });
+
+      it('generateSQL.typical.elseif.004', () => {
+        // ELSEがなく、どの条件にも合致しないケース
+        const template = `
+          SELECT * FROM users
+          WHERE
+            1 = 1
+            /*IF userName === 'a'*/AND name = 'A'
+            /*ELSEIF userName === 'b'*/AND name = 'B'
+            /*END*/
+        `;
+        const bindEntity = {
+          userName: 'z'
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT * FROM users
+          WHERE
+            1 = 1
+        `));
+      });
+
+      it('generateSQL.typical.elseif.005', () => {
+        // ELSEIFの中にさらにIFがある入れ子構造
+        const template = `
+          SELECT * FROM baskets
+          WHERE
+            1 = 1
+            /*IF category === 'fruit'*/
+              AND category = 'fruit'
+              /*IF name === 'apple'*/AND item = 'APPLE'/*END*/
+            /*ELSEIF category === 'vegetable'*/
+              AND category = 'vegetable'
+              /*IF name === 'carrot'*/AND item = 'CARROT'/*ELSE*/AND item = 'OTHER_VEGE'/*END*/
+            /*END*/
+        `;
+        const bindEntity = {
+          category: 'vegetable',
+          name: 'carrot'
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT * FROM baskets
+          WHERE
+            1 = 1
+            AND category = 'vegetable'
+            AND item = 'CARROT'
+        `));
+      });
+
+      it('generateSQL.typical.else.001', () => {
+        // ELSE条件に合致
+        const template = `
+          SELECT * FROM users
+          WHERE
+            1 = 1
+            /*IF userName === 'a'*/AND name = 'A'
+            /*ELSEIF userName === 'b'*/AND name = 'B'
+            /*ELSE*/AND name = 'C'
+            /*END*/
+        `;
+        const bindEntity = {
+          userName: 'z'
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT * FROM users
+          WHERE
+            1 = 1
+            AND name = 'C'
+        `));
+      });
+
       it('generateSQL.typical.005', () => {
         // NULL値のバインド
-        const builder = new SQLBuilder();
         const template = `
           INSERT INTO users (
             user_id,
@@ -171,7 +314,6 @@ describe('@/server/common/sql-builder.ts', () => {
     describe('Syntax Test Cases', () => {
       it('generateSQL.syntax.001', () => {
         // FOR文の展開(BEGINあり)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM activity
           /*BEGIN*/WHERE
@@ -194,7 +336,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.syntax.002', () => {
         // FOR文の展開(BEGINなし)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM activity
           WHERE
@@ -216,7 +357,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.syntax.003', () => {
         // 特殊ケース: FOR文の中にFORと関連しないタグが存在する
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM items
           /*BEGIN*/WHERE
@@ -245,7 +385,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.syntax.004', () => {
         // FORのコレクションが null の場合は何も展開されない
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM activity
           /*BEGIN*/WHERE
@@ -263,7 +402,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.syntax.005', () => {
         // FORのコレクションが undefined の場合は何も展開されない
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM activity
           /*BEGIN*/WHERE
@@ -285,7 +423,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.syntax.101', () => {
         // 条件の後にバインドパラメータなし
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM activity
           WHERE
@@ -305,7 +442,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.syntax.102', () => {
         // 未定義のタグ記載時 => 構文不正とみなしてエラーを返す
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM activity
           WHERE
@@ -315,11 +451,10 @@ describe('@/server/common/sql-builder.ts', () => {
         const bindEntity = {};
         expect(() => {
           builder.generateSQL(template, bindEntity);
-        }).toThrow(`[SQLBuilder] The property "UNKNOWN_TAG" is not found in the bind entity. (Template index: 91)`);
+        }).toThrow(`[SQLBuilder] The property 'UNKNOWN_TAG' is not found in the bind entity. (Template index: 91)`);
       });
       it('generateSQL.syntax.103', () => {
         // バインドパラメータがSQL関数内に存在するケース
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM activity
           WHERE
@@ -348,7 +483,6 @@ describe('@/server/common/sql-builder.ts', () => {
         // バインド変数の前後にスペースを含む書き方の場合(問題なくサポートできる)
         // /*IF projectNames.length */
         // /* projectNames */
-        const builder = new SQLBuilder();
         const template = `
           SELECT COUNT(*) AS cnt FROM activity
           WHERE
@@ -391,7 +525,6 @@ describe('@/server/common/sql-builder.ts', () => {
           status: 10,
           jobNames: ['job1', 'job2']
         };
-        const builder = new SQLBuilder('postgres');
         const sql = builder.generateSQL(countSqlTemplate, bindEntity);
         expect(formatSQL(sql)).toBe(formatSQL(`
           SELECT
@@ -418,7 +551,6 @@ describe('@/server/common/sql-builder.ts', () => {
           status: 9,
           jobNames: ['job1', 'job2']
         };
-        const builder = new SQLBuilder('postgres');
         const sql = builder.generateSQL(countSqlTemplate, bindEntity);
         expect(formatSQL(sql)).toBe(formatSQL(`
           SELECT
@@ -444,7 +576,6 @@ describe('@/server/common/sql-builder.ts', () => {
           status: 10,
           jobNames: []
         };
-        const builder = new SQLBuilder('postgres');
         const sql = builder.generateSQL(countSqlTemplate, bindEntity);
         expect(formatSQL(sql)).toBe(formatSQL(`
           SELECT
@@ -484,7 +615,6 @@ describe('@/server/common/sql-builder.ts', () => {
           limit: 0,
           offset: 100
         };
-        const builder = new SQLBuilder('postgres');
         const sql = builder.generateSQL(countSqlTemplate, bindEntity);
         expect(formatSQL(sql)).toBe(formatSQL(`
           SELECT
@@ -505,33 +635,34 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.syntax.109', () => {
         // ダミーパラメータを含まない場合(推奨はしない書き方)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM table
           WHERE
-            user_id = /*userId*/,
-            AND remarks = /*remarks*/,
-            AND verified IS TRUE,
+            user_id = /*userId*/
+            AND remarks = /*remarks*/
+            AND verified IS TRUE
+            AND status IN (/*statuses*/)
             AND /*verifiedAt*/ < verified_at
         `;
         const bindEntity = {
           userId: 12345,
           remarks: 'aaa,bbb,ccc',
+          statuses: [1, 2, 3],
           verifiedAt: '2025-07-05'
         };
         const sql = builder.generateSQL(template, bindEntity);
         expect(formatSQL(sql)).toBe(formatSQL(`
           SELECT * FROM table
           WHERE
-            user_id = 12345,
-            AND remarks = 'aaa,bbb,ccc',
-            AND verified IS TRUE,
+            user_id = 12345
+            AND remarks = 'aaa,bbb,ccc'
+            AND verified IS TRUE
+            AND status IN (1,2,3)
             AND '2025-07-05' < verified_at
         `));
       });
       it('generateSQL.syntax.110', () => {
         // ANY/CAST構文 => generateSQLでは未サポート
-        const builder = new SQLBuilder();
         const template = `
           SELECT
             id
@@ -548,7 +679,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.syntax.201', () => {
         // INSERT文で設定するカラムが動的(設定しない行が出力されないこと、行末尾のカンマが出力されること)
-        const builder = new SQLBuilder();
         const template = `
           INSERT INTO users (
             /*IF name !== undefined*/name,/*END*/
@@ -583,7 +713,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.syntax.202', () => {
         // UPDATE文で設定するカラムが動的(行末尾のカンマが出力されること)
-        const builder = new SQLBuilder();
         const template = `
           UPDATE users SET
             /*IF name !== undefined*/name = /*name*/'John',/*END*/
@@ -612,7 +741,6 @@ describe('@/server/common/sql-builder.ts', () => {
     describe('Operator Test Cases', () => {
       it('generateSQL.operator.001', () => {
         // IFに'!= null'を含む(全不一致)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM activity
           /*BEGIN*/WHERE
@@ -635,7 +763,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.002', () => {
         // IFに'!= null'を含む(一部一致)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM activity
           /*BEGIN*/WHERE
@@ -665,7 +792,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.003', () => {
         // 数値の大小比較
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM activity
           WHERE
@@ -685,7 +811,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.004', () => {
         // 数値の大小比較
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM activity
           WHERE
@@ -704,7 +829,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.005', () => {
         // !!演算子(合致)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM items
           WHERE
@@ -724,7 +848,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.006', () => {
         // !!演算子(非合致)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM items
           WHERE
@@ -743,7 +866,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.007', () => {
         // !演算子(合致:空文字)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM items
           WHERE
@@ -763,7 +885,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.008', () => {
         // !演算子(合致:null) => NULLが設定されるが、本来IS NULLになるようにテンプレートを作成すべきもの
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM items
           WHERE
@@ -783,7 +904,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.009', () => {
         // !演算子(非合致)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM items
           WHERE
@@ -802,7 +922,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.010', () => {
         // ?演算子(optional chaining)(合致)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM items
           WHERE
@@ -822,7 +941,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.011', () => {
         // ?演算子(optional chaining)(非合致)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM items
           WHERE
@@ -841,7 +959,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.012', () => {
         // || (OR条件 - 成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -860,7 +977,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.013', () => {
         // || (OR条件 - 不成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -877,7 +993,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.014', () => {
         // && (AND条件 -- 成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -896,7 +1011,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.015', () => {
         // && (AND条件 -- 不成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -913,7 +1027,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.016', () => {
         // == (等価条件 - 成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -932,7 +1045,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.017', () => {
         // == (等価条件 - 不成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -949,7 +1061,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.018', () => {
         // != (不等価条件 - 成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -968,7 +1079,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.019', () => {
         // != (不等価条件 - 不成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -985,7 +1095,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.020', () => {
         // === (厳密等価条件 - 成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1004,7 +1113,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.021', () => {
         // === (厳密等価条件 - 不成立, 型違い)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1021,7 +1129,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.022', () => {
         // !== (厳密不等価条件 - 成立, 型違い)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1040,7 +1147,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.023', () => {
         // !== (厳密不等価条件 - 不成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1057,7 +1163,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.024', () => {
         // === (厳密等価条件:nullに対する判定 - 成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1078,7 +1183,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.025', () => {
         // === (厳密等価条件:nullに対する判定 - 不成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1096,7 +1200,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.026', () => {
         // === (厳密等価条件:undefinedに対する判定 - 成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1117,7 +1220,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.027', () => {
         // === (厳密等価条件:undefinedに対する判定 - 不成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1135,7 +1237,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.028', () => {
         // < (未満条件 - 成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1154,7 +1255,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.029', () => {
         // < (未満条件 - 不成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1171,7 +1271,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.030', () => {
         // <= (以下条件 - 成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1190,7 +1289,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.031', () => {
         // <= (以下条件 - 不成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1207,7 +1305,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.032', () => {
         // > (より大条件 - 成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1226,7 +1323,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.033', () => {
         // > (より大条件 - 不成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1243,7 +1339,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.034', () => {
         // >= (以上条件 - 成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1262,7 +1357,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.035', () => {
         // >= (以上条件 - 不成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1279,7 +1373,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.036', () => {
         // ! (NOT演算子 - 成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1298,7 +1391,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operator.037', () => {
         // ! (NOT演算子 - 不成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1318,7 +1410,6 @@ describe('@/server/common/sql-builder.ts', () => {
     describe('Multiple Operator Test Cases', () => {
       it('generateSQL.multiple-operator.001', () => {
         // 複合条件: ORとANDの組み合わせと括弧
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1338,7 +1429,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.multiple-operator.002', () => {
         // 複合条件: ORとANDの組み合わせと括弧 (不成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1359,7 +1449,6 @@ describe('@/server/common/sql-builder.ts', () => {
     describe('Operand Test Cases', () => {
       it('generateSQL.operand.001', () => {
         // NULLとの比較 (== null) - 成立
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1378,7 +1467,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operand.002', () => {
         // NULLとの比較 (== null) - 不成立
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1395,7 +1483,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operand.003', () => {
         // UNDEFINEDとの比較 (=== undefined) - 成立
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1414,7 +1501,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operand.004', () => {
         // UNDEFINEDとの比較 (=== undefined) - 不成立
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1431,7 +1517,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operand.005', () => {
         // 文字列リテラルとの比較 (=== 'abc') - 成立
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1450,7 +1535,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operand.006', () => {
         // 文字列リテラルとの比較 (=== 'abc') - 不成立
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1467,7 +1551,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operand.007', () => {
         // 数値リテラルとの比較 (=== 123) - 成立
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1486,7 +1569,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operand.008', () => {
         // 数値リテラルとの比較 (=== 123) - 不成立
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1503,7 +1585,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operand.009', () => {
         // プロパティが存在しない場合の評価 (false)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1520,7 +1601,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operand.010', () => {
         // プロパティがundefinedの場合の評価 (false)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1537,7 +1617,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operand.011', () => {
         // プロパティがnullの場合の評価 (false)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1554,7 +1633,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operand.012', () => {
         // Booleanリテラルとの比較 (true) - 成立
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1573,7 +1651,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operand.013', () => {
         // Booleanリテラルとの比較 (false) - 成立
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1592,7 +1669,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operand.014', () => {
         // バインドパラメータ中にカンマを含む場合
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM table
           WHERE
@@ -1615,7 +1691,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.operand.015', () => {
         // バインドパラメータ中にシングルクォートを含む場合
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM table
           WHERE
@@ -1641,7 +1716,6 @@ describe('@/server/common/sql-builder.ts', () => {
     describe('Grouping Test Cases', () => {
       it('generateSQL.grouping.001', () => {
         // 括弧によるグループ化 (成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1662,7 +1736,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.grouping.002', () => {
         // 括弧によるグループ化 (不成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1682,7 +1755,6 @@ describe('@/server/common/sql-builder.ts', () => {
       it('generateSQL.grouping.003', () => {
         // 括弧の評価とオペレータースタックでの '(' の処理
         // shuntingYardの '(' 処理
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1703,7 +1775,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.grouping.004', () => {
         // 括弧外のNOT演算子
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1722,7 +1793,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.grouping.005', () => {
         // 括弧内の演算優先順位 (aだけがtruthy - 成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1744,7 +1814,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.grouping.006', () => {
         // 括弧内の演算優先順位 (bだけがtruthy - 不成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1764,7 +1833,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.grouping.007', () => {
         // 括弧内の演算優先順位 (cだけがtruthy - 不成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1784,7 +1852,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.grouping.008', () => {
         // 括弧内の演算優先順位 (bとcがtruthy - 成立)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1806,7 +1873,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.grouping.009', () => {
         // IFで生成されるSQLに括弧を含むケース
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM activity
           WHERE
@@ -1827,7 +1893,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.grouping.010', () => {
         // IFで生成されるSQLに括弧を含むケース
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM activity
           WHERE
@@ -1848,7 +1913,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.grouping.011', () => {
         // IFで生成されるSQLに括弧を含むケース
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM activity
           WHERE
@@ -1872,7 +1936,6 @@ describe('@/server/common/sql-builder.ts', () => {
     describe('Special Chars Test Cases', () => {
       it('generateSQL.special-chars.001', () => {
         // シングルクォートのエスケープ
-        const builder = new SQLBuilder();
         const template = `
           SELECT
             user_id
@@ -1894,7 +1957,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.special-chars.002', () => {
         // バックスラッシュのエスケープ
-        const builder = new SQLBuilder();
         const template = `
           SELECT
             user_id
@@ -1916,7 +1978,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.special-chars.003', () => {
         // 配列内のエスケープ
-        const builder = new SQLBuilder();
         const template = `
           SELECT
             user_id
@@ -1942,7 +2003,6 @@ describe('@/server/common/sql-builder.ts', () => {
       it('generateSQL.special-chars.004', () => {
         // 文字列内のシングルクォートエスケープ (バックスラッシュ)
         // ASTのtokenizeで '\' が処理されることを確認
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1962,7 +2022,6 @@ describe('@/server/common/sql-builder.ts', () => {
       it('generateSQL.special-chars.005', () => {
         // 文字列内のバックスラッシュエスケープ (バックスラッシュ自身)
         // ASTのtokenizeで '\\' が処理されることを確認
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -1982,7 +2041,6 @@ describe('@/server/common/sql-builder.ts', () => {
       it('generateSQL.special-chars.006', () => {
         // 文字列内のバックスラッシュと他の文字の組み合わせ (不正でないことの確認)
         // ASTのtokenizeで \' や \\ が処理されることを確認
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -2004,7 +2062,6 @@ describe('@/server/common/sql-builder.ts', () => {
     describe('Special SQL Syntax Test Cases', () => {
       it('generateSQL.special-sql-syntax.001', () => {
         // INTERVALを使ったクエリ_1
-        const builder = new SQLBuilder();
         const template = `
           SELECT
             wallet_id
@@ -2027,7 +2084,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.special-sql-syntax.002', () => {
         // INTERVALを使ったクエリ_2
-        const builder = new SQLBuilder();
         const template = `
           SELECT
             wallet_id
@@ -2051,7 +2107,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.special-sql-syntax.003', () => {
         // MERGE文を使ったクエリ
-        const builder = new SQLBuilder();
         const template = `
           INSERT INTO check_result (
             user_id,
@@ -2123,7 +2178,6 @@ describe('@/server/common/sql-builder.ts', () => {
     describe('Negative Test Cases', () => {
       it('generateSQL.negative.001', () => {
         // IF構文エラー (evaluating condition)
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE
@@ -2137,7 +2191,6 @@ describe('@/server/common/sql-builder.ts', () => {
       });
       it('generateSQL.negative.002', () => {
         // 許容されない演算子
-        const builder = new SQLBuilder();
         const template = `
           SELECT * FROM user
           /*BEGIN*/WHERE

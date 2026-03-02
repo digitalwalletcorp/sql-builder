@@ -21,7 +21,8 @@
     "dynamic",
     "parameterized",
     "placeholder",
-    "S2Dao"
+    "S2Dao",
+    "Doma"
   ],
   "author": "satoshi kotaki",
   "license": "MIT",

@@ -229,7 +229,14 @@ Use a `/*FOR...*/` block to iterate over an array and generate SQL for each item
 SELECT * FROM activity
 WHERE
   1 = 0
-  /*FOR name:projectNames*/OR project_name LIKE '%' || /*name*/'default' || '%'/*END*/
+  /*FOR id:targetIds*/
+  OR id = /*id*/0
+  /*END*/
+ORDER BY
+  CASE id
+    /*FOR id: targetids*/
+    WHEN /*id*/0 THEN /*count*/1
+    /*END*/
 ```
 
 **Code:**
@@ -241,7 +248,7 @@ const builder = new SQLBuilder();
 const template = `...`; // The SQL template from above
 
 const bindEntity = {
-  projectNames: ['api', 'batch', 'frontend']
+  targetIds: [28, 26, 27]
 };
 
 const sql = builder.generateSQL(template, bindEntity);
@@ -254,9 +261,15 @@ console.log(sql);
 SELECT * FROM activity
 WHERE
   1 = 0
-  OR project_name LIKE '%' || 'api' || '%'
-  OR project_name LIKE '%' || 'batch' || '%'
-  OR project_name LIKE '%' || 'frontend' || '%'
+  OR id = 28
+  OR id = 26
+  OR id = 27
+ORDER BY
+  CASE id
+    WHEN 28 THEN 1
+    WHEN 26 THEN 2
+    WHEN 27 THEN 3
+  END
 ```
 
 ### 📚 API Reference
@@ -472,7 +485,7 @@ WHERE
 | ELSEIF | `/*ELSEIF condition*/ ...` | Evaluates only if the preceding `IF` or `ELSEIF` was false. Must be placed inside an `IF` block. |
 | ELSE | `/*ELSE*/ ...`	| Included if all preceding `IF` and `ELSEIF` conditions in the block were false. |
 | BEGIN | `/*BEGIN*/ ... /*END*/` | A wrapper block, typically for a `WHERE` clause. The entire block is included only if at least one inner `IF/ELSEIF/ELSE` or `FOR` block is active. This intelligently removes the `WHERE` keyword if no filters apply. |
-| FOR | `/*FOR item:collection*/ ... /*END*/` | Iterates over the `collection` array from the `entity`. For each loop, the enclosed SQL is generated, and the current value is available as the `item` variable for binding. |
+| FOR | `/*FOR item:collection*/ ... /*END*/` | Iterates over the `collection` array. For each loop, the current value is available as `item`. Additionally, `index` (0-based) and `count` (1-based) are available as local variables. |
 | Bind Variable | `/*variable*/` | Binds a value from the `entity`. Strings are quoted `'value'`, numbers are rendered as-is `123`. When the value is an array, elements are expanded into a comma-separated list. The template may contain zero or one dummy expression after a bind tag. If present, only a single SQL expression is allowed. Multiple comma-separated dummy values are not supported. |
 | END | `/*END*/` | Marks the end of an `IF`, `BEGIN`, or `FOR` block. |
 

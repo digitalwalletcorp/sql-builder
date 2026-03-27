@@ -312,7 +312,7 @@ describe('@/sql-builder.ts', () => {
     });
 
     describe('Syntax Test Cases', () => {
-      it('generateSQL.syntax.001', () => {
+      it('generateSQL.syntax.for.001', () => {
         // FOR文の展開(BEGINあり)
         const template = `
           SELECT * FROM activity
@@ -334,7 +334,7 @@ describe('@/sql-builder.ts', () => {
             AND project_name LIKE '%' || 'ccc' || '%'
         `));
       });
-      it('generateSQL.syntax.002', () => {
+      it('generateSQL.syntax.for.002', () => {
         // FOR文の展開(BEGINなし)
         const template = `
           SELECT * FROM activity
@@ -355,7 +355,36 @@ describe('@/sql-builder.ts', () => {
             AND project_name LIKE '%' || 'ccc' || '%'
         `));
       });
-      it('generateSQL.syntax.003', () => {
+      it('generateSQL.syntax.for.003', () => {
+        // FOR文の展開(要素間にカンマを付与)
+        const template = `
+          SELECT * FROM users
+          WHERE
+            (user_id, location) IN (
+              /*FOR item:userMapping*/
+                -- 最後の要素以外にカンマを付与
+                (/*item.user_id*/, /*item.location*/)/*IF count < userMapping.length*/,/*END*/
+              /*END*/
+            )
+        `;
+        const sql = builder.generateSQL(template, {
+          userMapping: [
+            { user_id: 5, location: 'JP' },
+            { user_id: 6, location: 'US' },
+            { user_id: 7, location: 'SG' }
+          ]
+        });
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT * FROM users
+          WHERE
+            (user_id, location) IN (
+              (5, 'JP'),
+              (6, 'US'),
+              (7, 'SG')
+            )
+        `));
+      });
+      it('generateSQL.syntax.for.004', () => {
         // 特殊ケース: FOR文の中にFORと関連しないタグが存在する
         const template = `
           SELECT * FROM items
@@ -383,7 +412,7 @@ describe('@/sql-builder.ts', () => {
             AND item_name LIKE '%' || 'test' || '%'
         `));
       });
-      it('generateSQL.syntax.004', () => {
+      it('generateSQL.syntax.for.005', () => {
         // FORのコレクションが null の場合は何も展開されない
         const template = `
           SELECT * FROM activity
@@ -400,7 +429,7 @@ describe('@/sql-builder.ts', () => {
           SELECT * FROM activity
         `));
       });
-      it('generateSQL.syntax.005', () => {
+      it('generateSQL.syntax.for.006', () => {
         // FORのコレクションが undefined の場合は何も展開されない
         const template = `
           SELECT * FROM activity

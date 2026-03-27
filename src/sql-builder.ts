@@ -559,12 +559,15 @@ export class SQLBuilder {
           const array = common.getProperty(entity, collectionName);
           if (Array.isArray(array) && array.length) {
             tagContext.conditionMatched = true;
+            let index = 0;
             for (const value of array) {
               const children = tagContext.sub.filter(a => a.type !== 'END');
               result += this.parse(
                 pos,
                 template,
                 {
+                  _index: index,
+                  _count: index + 1,
                   ...entity,
                   [bindName]: value
                 },
@@ -572,6 +575,7 @@ export class SQLBuilder {
                 options
               );
               result += '\n';
+              index++;
             }
 
             // FORのENDまでポインタを進める

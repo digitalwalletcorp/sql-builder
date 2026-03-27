@@ -235,7 +235,7 @@ WHERE
 ORDER BY
   CASE id
     /*FOR id: targetids*/
-    WHEN /*id*/0 THEN /*count*/1
+    WHEN /*id*/0 THEN /*_count*/1
     /*END*/
 ```
 
@@ -485,7 +485,7 @@ WHERE
 | ELSEIF | `/*ELSEIF condition*/ ...` | Evaluates only if the preceding `IF` or `ELSEIF` was false. Must be placed inside an `IF` block. |
 | ELSE | `/*ELSE*/ ...`	| Included if all preceding `IF` and `ELSEIF` conditions in the block were false. |
 | BEGIN | `/*BEGIN*/ ... /*END*/` | A wrapper block, typically for a `WHERE` clause. The entire block is included only if at least one inner `IF/ELSEIF/ELSE` or `FOR` block is active. This intelligently removes the `WHERE` keyword if no filters apply. |
-| FOR | `/*FOR item:collection*/ ... /*END*/` | Iterates over the `collection` array. For each loop, the current value is available as `item`. Additionally, `index` (0-based) and `count` (1-based) are available as local variables. |
+| FOR | `/*FOR item:collection*/ ... /*END*/` | Iterates over the `collection` array. For each loop, the current value is available as `item`. Additionally, inside the loop, `_index` (0-based) and `_count` (1-based) are available. If your entity already contains these properties, your values will take priority, meaning `_index` and `_count` properties for `FOR` tag will not work as expected. |
 | Bind Variable | `/*variable*/` | Binds a value from the `entity`. Strings are quoted `'value'`, numbers are rendered as-is `123`. When the value is an array, elements are expanded into a comma-separated list. The template may contain zero or one dummy expression after a bind tag. If present, only a single SQL expression is allowed. Multiple comma-separated dummy values are not supported. |
 | END | `/*END*/` | Marks the end of an `IF`, `BEGIN`, or `FOR` block. |
 

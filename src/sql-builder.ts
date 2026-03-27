@@ -566,10 +566,10 @@ export class SQLBuilder {
                 pos,
                 template,
                 {
+                  _index: index,
+                  _count: index + 1,
                   ...entity,
-                  [bindName]: value,
-                  index: index,
-                  count: index + 1
+                  [bindName]: value
                 },
                 children,
                 options

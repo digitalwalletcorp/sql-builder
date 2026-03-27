@@ -363,7 +363,7 @@ describe('@/sql-builder.ts', () => {
             (user_id, location) IN (
               /*FOR item:userMapping*/
                 -- 最後の要素以外にカンマを付与
-                (/*item.user_id*/, /*item.location*/)/*IF count < userMapping.length*/,/*END*/
+                (/*item.user_id*/, /*item.location*/)/*IF _count < userMapping.length*/,/*END*/
               /*END*/
             )
         `;

@@ -139,6 +139,17 @@ export class SQLBuilder {
   // `array [100, 200] :: numeric(10, 2) []` のようなパターンも存在する
   private PGSQL_ARRAY_CAST_PATTERN = /^ARRAY\s*\[.*?\]\s*::\s*([a-zA-Z_]\w*(?:\([^\)]*\))?)\s*\[\]/i;
 
+  // 文字列リテラル: シングルクォートで始まり、シングルクォートで終わる
+  // ただし、内部にエスケープされたシングルクォートがある場合は除外
+  private STRING_LITERAL_LIST_PATTERN = /^'([^']|'')*'(?:\s*,\s*'([^']|'')*')*/;
+
+  // 数値・真偽値リテラル: 数字、先頭の符号、ドット、真偽値
+  // それぞれがカンマで区切られる場合も許容
+  private LITERAL_LIST_PATTERN = /^(?:-?[0-9.]+|true|false)(?:\s*,\s*(?:-?[0-9.]+|true|false))*/i;
+
+  // その他境界
+  private BOUNDARY_PATTERN = /^[^ \t\n\r;()]+/;
+
   private bindType?: BindType;
 
   constructor(bindType?: BindType) {
@@ -796,75 +807,30 @@ export class SQLBuilder {
     if (tagContext.type !== 'BIND') {
       throw new Error(`[SQLBuilder] ${tagContext.type} に対してgetDummyParamEndIndexが呼び出されました`);
     }
-    let quoted = false;
-    let bracket = false;
-    const chars: string[] = Array.from(template);
-    for (let i = tagContext.endIndex; i < template.length; i++) {
-      const c = chars[i];
-      if (bracket) {
-        // 丸括弧解析中
-        switch (true) {
-          case c === ')':
-            // 丸括弧終了
-            return i + 1;
-          case c === '\n':
-            throw new Error(`[SQLBuilder] 括弧が閉じられていません [index: ${i}, subsequence: '${template.substring(Math.max(i - 20, 0), i + 20)}']`);
-          default:
-        }
-      } else if (quoted) {
-        // クォート解析中
-        switch (true) {
-          case c === '\'':
-            // クォート終了
-            return i + 1;
-          case c === '\n':
-            throw new Error(`[SQLBuilder] クォートが閉じられていません [index: ${i}, subsequence: '${template.substring(Math.max(i - 20, 0), i + 20)}']`);
-          default:
-        }
-      } else {
-        switch (true) {
-          case c === '\'':
-            // クォート開始
-            quoted = true;
-            break;
-          case c === '(':
-            // 丸括弧開始
-            // bracket = true;
-            // break;
-            return i;
-          case c === ')':
-            // throw new Error(`[SQLBuilder] 括弧が開始されていません [index: ${i}, subsequence: '${template.substring(Math.max(i - 20, 0), i + 20)}']`);
-            return i;
-          case c === '*' && 1 < i && chars[i - 1] === '/':
-            // 次ノード開始
-            return i - 1;
-          case c === '-' && 1 < i && chars[i - 1] === '-':
-            // 行コメント
-            return i - 1;
-          case c === '\n':
-            if (1 < i && chars[i - 1] === '\r') {
-              // \r\n
-              return i - 1;
-            }
-            // \n
-            return i;
-          case c === ' ' || c === '\t':
-            // 空白文字
-            return i;
-          case c === ',':
-            return i;
-          case c === 'A' || c === 'a':
-            // PostgreSQLの`ANY (/*bindParam*/ARRAY['John']::text[])`を解析するパターン
-            const target = template.substring(i);
-            const match = target.match(this.PGSQL_ARRAY_CAST_PATTERN);
-            if (match) {
-              return i + match[0].length;
-            }
-          default:
-        }
-      }
+
+    const remaining = template.substring(tagContext.endIndex);
+
+    let match: RegExpMatchArray | null;
+
+    if (
+      (match = remaining.match(this.STRING_LITERAL_LIST_PATTERN))
+      ||
+      (match = remaining.match(this.PGSQL_ARRAY_CAST_PATTERN))
+      ||
+      (match = remaining.match(this.LITERAL_LIST_PATTERN))
+    ) {
+      return tagContext.endIndex + match[0].length;
     }
-    return template.length;
+
+    if (
+      (match = remaining.match(this.BOUNDARY_PATTERN))
+    ) {
+      const commentIndex = match[0].indexOf('/*');
+      const length = commentIndex !== -1 ? commentIndex : match[0].length;
+      return tagContext.endIndex + length;
+    }
+
+    return tagContext.endIndex;
   }
 
   /**
@@ -923,9 +889,27 @@ export class SQLBuilder {
       default:
         // string
         if (Array.isArray(value)) {
-          result = value.map(v => typeof v === 'string' ? `'${this.escape(v)}'` : v).join(',');
+          result = value.map(v => {
+            switch (typeof v) {
+              case 'string':
+                return `'${this.escape(v)}'`;
+              case 'boolean':
+                return v ? 'TRUE' : 'FALSE';
+              default:
+                return v;
+            }
+          }).join(',');
         } else {
-          result = typeof value === 'string' ? `'${this.escape(value)}'` : value;
+          switch (typeof value) {
+            case 'string':
+              result = `'${this.escape(value)}'`;
+              break;
+            case 'boolean':
+              result = value ? 'TRUE' : 'FALSE';
+              break;
+            default:
+              result = value;
+          }
         }
         return result as ExtractValueType<T>;
     }

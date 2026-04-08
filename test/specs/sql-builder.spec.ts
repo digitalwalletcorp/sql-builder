@@ -363,7 +363,7 @@ describe('@/sql-builder.ts', () => {
             (user_id, location) IN (
               /*FOR item:userMapping*/
                 -- 最後の要素以外にカンマを付与
-                (/*item.user_id*/, /*item.location*/)/*IF _count < userMapping.length*/,/*END*/
+                (/*item.user_id*/123, /*item.location*/'Tokyo')/*IF _count < userMapping.length*/,/*END*/
               /*END*/
             )
         `;
@@ -450,6 +450,92 @@ describe('@/sql-builder.ts', () => {
             AND status = 10
         `));
       });
+
+      it('generateSQL.syntax.dummy_params.001', () => {
+        // ダミー値の文字列リテラルの中にエスケープされたシングルクォートがある
+        const template = `
+          SELECT
+            *
+          FROM users
+          WHERE
+            user_name = /*userName*/'John''Bob'
+        `;
+        const entity = { userName: 'Jamie' };
+
+        const sql = builder.generateSQL(template, entity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT
+            *
+          FROM users
+          WHERE
+            user_name = 'Jamie'
+        `));
+      });
+      it('generateSQL.syntax.dummy_params.002', () => {
+        // ダミー値が符号付き数値
+        const template = `
+          SELECT
+            *
+          FROM users
+          WHERE
+            score = /*score*/-100
+        `;
+        const entity = { score: 87 };
+
+        const sql = builder.generateSQL(template, entity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT
+            *
+          FROM users
+          WHERE
+            score = 87
+        `));
+      });
+      it('generateSQL.syntax.dummy_params.003', () => {
+        // ダミー値が真偽値
+        const template = `
+          SELECT
+            *
+          FROM users
+          WHERE
+            active IS /*isActive*/FALSE
+        `;
+        const entity = { isActive: true };
+
+        const sql = builder.generateSQL(template, entity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT
+            *
+          FROM users
+          WHERE
+            active IS TRUE
+        `));
+      });
+      it('generateSQL.syntax.dummy_params.004', () => {
+        // ダミー値の文字列リテラルないにセミコロンがあり、外側にもセミコロンがある
+        const template = `
+          DECLARE region_name STRING DEFAULT /*region*/'JP;Tokyo';
+        `;
+        const entity = { region: 'US;NewYork' };
+
+        const sql = builder.generateSQL(template, entity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          DECLARE region_name STRING DEFAULT 'US;NewYork';
+        `));
+      });
+      it('generateSQL.syntax.dummy_params.005', () => {
+        // 数値のダミー値の後にセミコロンがある
+        const template = `
+          DECLARE user_id INT64 DEFAULT /*userId*/3;
+        `;
+        const entity = { userId: 999 };
+
+        const sql = builder.generateSQL(template, entity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          DECLARE user_id INT64 DEFAULT 999;
+        `));
+      });
+
       it('generateSQL.syntax.101', () => {
         // 条件の後にバインドパラメータなし
         const template = `

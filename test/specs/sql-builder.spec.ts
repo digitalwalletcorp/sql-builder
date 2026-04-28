@@ -27,6 +27,7 @@ describe('@/sql-builder.ts', () => {
     const builder = new SQLBuilder();
 
     describe('Typical Test Cases', () => {
+
       it('generateSQL.typical.if.001', () => {
         // すべてのIF条件が成立する(BEGINあり)
         const template = `
@@ -247,6 +248,66 @@ describe('@/sql-builder.ts', () => {
             1 = 1
             AND category = 'vegetable'
             AND item = 'CARROT'
+        `));
+      });
+
+      it('generateSQL.typical.elseif.006', () => {
+        // ELSEIFでマッチしたときにBEGINが反応することの確認
+        const template = `
+          SELECT * FROM baskets
+          /*BEGIN*/
+          WHERE
+            1 = 1
+            /*IF category === 'fruit'*/
+              AND category = 'fruit'
+              /*IF name === 'apple'*/AND item = 'APPLE'/*END*/
+            /*ELSEIF category === 'vegetable'*/
+              AND category = 'vegetable'
+              /*IF name === 'carrot'*/AND item = 'CARROT'/*ELSE*/AND item = 'OTHER_VEGE'/*END*/
+            /*END*/
+          /*END*/
+        `;
+        const bindEntity = {
+          category: 'vegetable',
+          name: 'carrot'
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT * FROM baskets
+          WHERE
+            1 = 1
+            AND category = 'vegetable'
+            AND item = 'CARROT'
+        `));
+      });
+
+      it('generateSQL.typical.elseif.007', () => {
+        // ELSEでマッチしたときにBEGINが反応することの確認
+        const template = `
+          SELECT * FROM baskets
+          /*BEGIN*/
+          WHERE
+            1 = 1
+            /*IF category === 'fruit'*/
+              AND category = 'fruit'
+              /*IF name === 'apple'*/AND item = 'APPLE'/*END*/
+            /*ELSEIF category === 'vegetable'*/
+              AND category = 'vegetable'
+              /*IF name === 'carrot'*/AND item = 'CARROT'/*ELSE*/AND item = 'OTHER_VEGE'/*END*/
+            /*ELSE*/
+              AND category = 'ALL'
+            /*END*/
+          /*END*/
+        `;
+        const bindEntity = {
+          category: 'all'
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT * FROM baskets
+          WHERE
+            1 = 1
+            AND category = 'ALL'
         `));
       });
 
@@ -533,6 +594,31 @@ describe('@/sql-builder.ts', () => {
         const sql = builder.generateSQL(template, entity);
         expect(formatSQL(sql)).toBe(formatSQL(`
           DECLARE user_id INT64 DEFAULT 999;
+        `));
+      });
+      it('generateSQL.syntax.dummy_params.006', () => {
+        // ダミーパラメータの後にカンマがある
+        const template = `
+          UPDATE users SET
+            /*IF !!Nationality*/nationality = /*Nationality*/'PHL',/*END*/
+            status = /*Status*/1,
+            modified_at = CURRENT_TIMESTAMP
+          RETURNING
+            *
+        `;
+
+        const bindEntity = {
+          Nationality: 'PHL',
+          Status: 10
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          UPDATE users SET
+            nationality = 'PHL',
+            status = 10,
+            modified_at = CURRENT_TIMESTAMP
+          RETURNING
+            *
         `));
       });
 

@@ -502,7 +502,7 @@ export class SQLBuilder {
           const beginBlockResult = this.parse(pos, template, entity, tagContext.sub, options);
           // BEGIN内のIF、FORのいずれかで成立したものがあった場合は結果を出力
           if (tagContext.sub.some(sub =>
-            (sub.type === 'IF' || sub.type === 'FOR') && sub.conditionMatched
+            (sub.type === 'IF' || sub.type === 'FOR') && (sub.conditionMatched || sub.childConditionMatched)
           )) {
             result += beginBlockResult;
           }

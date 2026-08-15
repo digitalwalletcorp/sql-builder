@@ -131,6 +131,31 @@ describe('@/sql-builder.ts', () => {
         `));
       });
 
+      it('generateSQL.typical.if.005', () => {
+        // 単純IF(ELSEIF/ELSE無し)が不成立で /*END*/ がテンプレート末尾にあってもタグが残らないこと
+        const template = `SELECT * FROM users WHERE 1 = 1
+            /*IF flag*/AND name = /*userName*/'AAA'/*END*/`;
+        const bindEntity = {
+          flag: false
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(sql).not.toContain('/*END*/');
+        expect(formatSQL(sql)).toBe(formatSQL('SELECT * FROM users WHERE 1 = 1'));
+      });
+
+      it('generateSQL.typical.begin.001', () => {
+        // BEGIN内のIFがすべて不成立で /*END*/ がテンプレート末尾にあっても、BEGINごと消えタグが残らないこと
+        const template = `SELECT COUNT(*) AS cnt FROM activity
+          /*BEGIN*/WHERE
+            /*IF projectNames.length*/AND project_name IN /*projectNames*/('project1')/*END*//*END*/`;
+        const bindEntity = {
+          projectNames: []
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(sql).not.toContain('/*END*/');
+        expect(formatSQL(sql)).toBe(formatSQL('SELECT COUNT(*) AS cnt FROM activity'));
+      });
+
       it ('generateSQL.typical.elseif.001', () => {
         // IF条件に合致(ELSEIF/ELSEがある)
         const template = `
@@ -220,6 +245,25 @@ describe('@/sql-builder.ts', () => {
           SELECT * FROM users
           WHERE
             1 = 1
+        `));
+      });
+
+      it('generateSQL.typical.elseif.004b', () => {
+        // elseif.004 と同じく ELSE無し・どの条件にも合致しないケースだが、
+        // /*END*/ がテンプレート末尾(直後に文字・改行が無い)にある。
+        // 以前は ELSEIF不成立時のEND探索誤りにより /*END*/ タグが出力に残るバグがあった。修正済みで、これはその回帰防止テスト。
+        // NOTE: テンプレートが /*END*/ で終わること。末尾に改行を足すと当時のバグは再現しなかった。
+        const template = `SELECT * FROM users WHERE 1 = 1
+            /*IF userName === 'a'*/AND name = 'A'
+            /*ELSEIF userName === 'b'*/AND name = 'B'
+            /*END*/`;
+        const bindEntity = {
+          userName: 'z'
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(sql).not.toContain('/*END*/');
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT * FROM users WHERE 1 = 1
         `));
       });
 
@@ -332,6 +376,18 @@ describe('@/sql-builder.ts', () => {
             1 = 1
             AND name = 'C'
         `));
+      });
+
+      it('generateSQL.typical.else.002', () => {
+        // IF/ELSE で /*END*/ がテンプレート末尾にあってもタグが残らないこと
+        const template = `SELECT * FROM users WHERE 1 = 1
+            /*IF flag*/AND name = 'A'/*ELSE*/AND name = 'DEFAULT'/*END*/`;
+        const bindEntity = {
+          flag: false
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(sql).not.toContain('/*END*/');
+        expect(formatSQL(sql)).toBe(formatSQL(`SELECT * FROM users WHERE 1 = 1 AND name = 'DEFAULT'`));
       });
 
       it('generateSQL.typical.005', () => {
@@ -510,6 +566,18 @@ describe('@/sql-builder.ts', () => {
             1 = 1
             AND status = 10
         `));
+      });
+
+      it('generateSQL.syntax.for.007', () => {
+        // FORの対象が空配列で /*END*/ がテンプレート末尾にあってもタグが残らないこと
+        const template = `SELECT * FROM users WHERE 1 = 1
+            /*FOR name:projectNames*/AND project_name LIKE '%' || /*name*/'aaa' || '%'/*END*/`;
+        const bindEntity = {
+          projectNames: []
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(sql).not.toContain('/*END*/');
+        expect(formatSQL(sql)).toBe(formatSQL('SELECT * FROM users WHERE 1 = 1'));
       });
 
       it('generateSQL.syntax.dummy_params.001', () => {

@@ -558,8 +558,10 @@ export class SQLBuilder {
               pos.index = nextBranch.startIndex;
               result += this.parse(pos, template, entity, [nextBranch], options);
             } else {
-              // 次の条件がない場合はENDの後ろまでポインタを飛ばす
-              const endTagContext = tagContext.sub[tagContext.sub.length - 1];
+              // 次の条件がない場合はENDの後ろまでポインタを飛ばす。
+              // ELSEIF/ELSEのENDは自身のsubではなく親IF配下の兄弟にあるため、成立時(seekSiblingTagContext)と同じ方法で探す。
+              // 自身のsub末尾(=ELSEIFの中身)を使うと、pos.indexがENDの手前で止まり、末尾ENDのとき /*END*/ が残る
+              const endTagContext = this.seekSiblingTagContext(tagContext, 'END', 'next')!;
               pos.index = endTagContext.endIndex;
             }
           }

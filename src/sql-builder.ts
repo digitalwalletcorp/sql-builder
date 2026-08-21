@@ -1,7 +1,7 @@
 import * as common from './common';
 import { AbstractSyntaxTree } from './abstract-syntax-tree';
 
-type TagType = 'BEGIN' | 'IF' | 'ELSEIF' | 'ELSE' | 'FOR' | 'BIND' | 'TEXT' | 'END';
+type TagType = 'BEGIN' | 'IF' | 'ELSEIF' | 'ELSE' | 'FOR' | 'BIND' | 'EMBED' | 'TEXT' | 'END';
 type ExtractValueType<T extends 'string' | 'array' | 'object'>
   = T extends 'string'
     ? string | undefined
@@ -70,6 +70,12 @@ interface BindTagContext extends BaseTagContext {
   pgArrayCast?: string;
 }
 
+// 値をSQLの一部としてそのまま埋め込むタグ
+interface EmbedTagContext extends BaseTagContext {
+  type: 'EMBED';
+  contents: string;
+}
+
 interface TextTagContext extends BaseTagContext {
   type: 'TEXT';
   contents: string;
@@ -84,6 +90,7 @@ type TagContext
   | BranchTagContext
   | TextTagContext
   | BindTagContext
+  | EmbedTagContext
   | EndTagContext;
 
 interface SharedIndex {
@@ -149,6 +156,9 @@ export class SQLBuilder {
 
   // その他境界
   private BOUNDARY_PATTERN = /^[^ \t\n\r;()]+/;
+
+  // 埋め込み変数(EMBED)の値に含まれていたらエラーにする文字列
+  private FORBIDDEN_EMBED_SEQUENCES = [';', '--', '/*', '*/', '(', ')'];
 
   private bindType?: BindType;
 
@@ -330,6 +340,20 @@ export class SQLBuilder {
           } as EndTagContext;
           break;
         }
+        case /^\/\*EMBED\s/.test(matchContent): {
+          tagContext = {
+            ...tagContext,
+            type: 'EMBED'
+          } as EmbedTagContext;
+          const contentMatcher = matchContent.match(/^\/\*EMBED\s+(.*?)\*\/$/);
+          tagContext.contents = contentMatcher && contentMatcher[1].trim() || '';
+          if (!tagContext.contents) {
+            throw new Error(`[SQLBuilder] EMBED requires a property name. (Template index: ${tagContext.startIndex})`);
+          }
+          // ダミー値の終了位置をendIndexに設定
+          tagContext.endIndex = this.getDummyParamEndIndex(template, tagContext);
+          break;
+        }
         default: {
           tagContext = {
             ...tagContext,
@@ -395,7 +419,8 @@ export class SQLBuilder {
     for (const tagContext of tagContexts) {
       switch (tagContext.type) {
         case 'TEXT':
-        case 'BIND': {
+        case 'BIND':
+        case 'EMBED': {
           const parentTagContext = parentTagContexts[parentTagContexts.length - 1];
           if (parentTagContext) {
             // 親タグがある
@@ -627,6 +652,13 @@ export class SQLBuilder {
           pos.index = tagContext.endIndex;
           return result;
         }
+        case 'EMBED': {
+          result += template.substring(pos.index, tagContext.startIndex);
+          pos.index = tagContext.endIndex;
+          // 埋め込み変数はプレースホルダにできないため、バインド指定時も即時展開する(バインド番号は消費しない)
+          result += this.extractEmbeddedValue(tagContext.contents, entity, tagContext.startIndex);
+          break;
+        }
         case 'BIND': {
           result += template.substring(pos.index, tagContext.startIndex);
           pos.index = tagContext.endIndex;
@@ -806,7 +838,7 @@ export class SQLBuilder {
    * @returns {number}
    */
   private getDummyParamEndIndex(template: string, tagContext: TagContext): number {
-    if (tagContext.type !== 'BIND') {
+    if (tagContext.type !== 'BIND' && tagContext.type !== 'EMBED') {
       throw new Error(`[SQLBuilder] ${tagContext.type} に対してgetDummyParamEndIndexが呼び出されました`);
     }
 
@@ -915,6 +947,50 @@ export class SQLBuilder {
         }
         return result as ExtractValueType<T>;
     }
+  }
+
+  /**
+   * entityからparamで指定した値を、SQLの一部としてそのまま埋め込む文字列で取得する。
+   *
+   * * string型はそのまま返す
+   * * number型・boolean型は文字列にして返す
+   * * 配列は各要素を文字列にしてカンマで繋いで返す(クォートは付かないためIN句の値リストには使えない)
+   * * null/undefined・オブジェクトはエラーにする
+   *
+   * バインド変数と違いクォート・エスケープを行わないため、値が意図した識別子・句であることは呼び出し側の責務になる。
+   * ここで弾くのは、生成SQLへの文の追加・以降のコメントアウトに使える文字列だけである
+   *
+   * @param {string} property `obj.param1.param2`などのドットで繋いだプロパティ
+   * @param {Record<string, any>} entity
+   * @param {number} startIndex エラーメッセージに含めるテンプレート上の位置
+   * @returns {string}
+   */
+  private extractEmbeddedValue(property: string, entity: Record<string, any>, startIndex: number): string {
+    const propertyResult = common.getPropertyResult(entity, property);
+    if (!propertyResult.exists) {
+      throw new Error(`[SQLBuilder] The property '${property}' is not found in the bind entity. (Template index: ${startIndex})`);
+    }
+    const value = propertyResult.value;
+    if (value == null) {
+      throw new Error(`[SQLBuilder] The embedded variable '${property}' must not be null or undefined. (Template index: ${startIndex})`);
+    }
+    let embedded: string;
+    if (Array.isArray(value)) {
+      embedded = value.map(a => {
+        if (a == null || typeof a === 'object') {
+          throw new Error(`[SQLBuilder] The embedded variable '${property}' must not contain null, undefined or object. (Template index: ${startIndex})`);
+        }
+        return String(a);
+      }).join(',');
+    } else if (typeof value === 'object') {
+      throw new Error(`[SQLBuilder] The embedded variable '${property}' must be a string, number, boolean or array. (Template index: ${startIndex})`);
+    } else {
+      embedded = String(value);
+    }
+    if (this.FORBIDDEN_EMBED_SEQUENCES.some(a => embedded.includes(a))) {
+      throw new Error(`[SQLBuilder] The embedded variable '${property}' must not contain any of the following: ${this.FORBIDDEN_EMBED_SEQUENCES.join(' ')} (Template index: ${startIndex})`);
+    }
+    return embedded;
   }
 
   /**

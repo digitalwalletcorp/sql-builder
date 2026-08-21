@@ -54,6 +54,7 @@ console.log(sql);
 * Optional Blocks (`/*BEGIN...*/`): Wrap entire clauses (like `WHERE`) that are only included if at least one inner `/*IF...*/` condition is met.
 * Looping (`/*FOR...*/`): Generate repetitive SQL snippets by iterating over arrays in your data (e.g., for multiple `LIKE` or `OR` conditions).
 * Simple Parameter Binding: Easily bind values from your data object into the SQL query.
+* Embedded Variables (`/*EMBED variable*/`): Insert a value into the SQL as-is, for parts that cannot be parameterized (table names, column names, `ORDER BY` clauses, keywords).
 * Zero Dependencies: A single, lightweight class with no external library requirements.
 
 #### ✅ Compatibility
@@ -487,7 +488,62 @@ WHERE
 | BEGIN | `/*BEGIN*/ ... /*END*/` | A wrapper block, typically for a `WHERE` clause. The entire block is included only if at least one inner `IF/ELSEIF/ELSE` or `FOR` block is active. This intelligently removes the `WHERE` keyword if no filters apply. |
 | FOR | `/*FOR item:collection*/ ... /*END*/` | Iterates over the `collection` array. For each loop, the current value is available as `item`. Additionally, inside the loop, `_index` (0-based) and `_count` (1-based) are available. If your entity already contains these properties, your values will take priority, meaning `_index` and `_count` properties for `FOR` tag will not work as expected. |
 | Bind Variable | `/*variable*/` | Binds a value from the `entity`. Strings are quoted `'value'`, numbers are rendered as-is `123`. When the value is an array, elements are expanded into a comma-separated list. The template may contain zero or one dummy expression after a bind tag. If present, only a single SQL expression is allowed. Multiple comma-separated dummy values are not supported. |
+| Embedded Variable | `/*EMBED variable*/dummy` | Inserts the value from the `entity` into the SQL **as-is**, without quoting or escaping. Intended for identifiers and clauses that cannot be parameterized. A dummy value is required so that the template remains executable SQL. See [Embedded Variables](#-embedded-variables-embed) for details. |
 | END | `/*END*/` | Marks the end of an `IF`, `BEGIN`, or `FOR` block. |
+
+---
+
+#### 🧩 Embedded Variables (`EMBED`)
+
+Bind variables cannot be used for table names, column names, `ORDER BY` clauses or keywords, because they are always rendered as quoted literals (or as placeholders in `generateParameterizedSQL`). Use an **embedded variable** for these parts. The value is inserted into the SQL **as-is**.
+
+```sql
+SELECT /*EMBED columns*/* FROM /*EMBED table*/schema.dummy_table ORDER BY /*EMBED orderBy*/id
+```
+
+```typescript
+const bindEntity = {
+  columns: ['user_id', 'user_name'],
+  table: 'app.user',
+  orderBy: ['user_name ASC', 'user_id DESC']
+};
+const sql = builder.generateSQL(template, bindEntity);
+
+// SELECT user_id,user_name FROM app.user ORDER BY user_name ASC,user_id DESC
+```
+
+##### ⚠️ Security: the caller is responsible for the value
+
+**Embedded variables are never quoted or escaped.** A value containing any of `;`, `--`, `/*`, `*/`, `(`, `)` is rejected with an error. That check is a cheap guard, **not a security boundary** — injection is possible without any of those characters.
+
+```typescript
+{ table: 'app.user WHERE 1 = 1 OR 1 = 1' }   // neutralizes the WHERE clause
+{ column: 'password' }                        // exposes another column
+{ orderBy: "CASE WHEN password LIKE 'a%' THEN 1 ELSE 2 END" }   // blind data probing
+```
+
+Never pass user input to an embedded variable. Resolve the value from a constant, an enum, or an allow-list:
+
+```typescript
+const SORTABLE = { name: 'user_name ASC', newest: 'created_at DESC' } as const;
+const orderBy = SORTABLE[request.sort] ?? SORTABLE.name;   // allow-list
+```
+
+##### Value types
+
+| Type | Result |
+| --- | --- |
+| `string` | Inserted as-is |
+| `number` / `boolean` | Converted to a string and inserted as-is |
+| `Array` | Each element is converted to a string and joined with `,` (no quotes are added) |
+| `null` / `undefined` | Throws an error |
+| Object | Throws an error |
+
+##### Notes
+
+* **A dummy value is required**, and it must be a single token without spaces (the dummy ends at whitespace, `;`, `(` or `)`). Write `ORDER BY /*EMBED orderBy*/id`, not `ORDER BY /*EMBED orderBy*/id DESC`.
+* In `generateParameterizedSQL`, an embedded variable is expanded immediately and **does not consume a placeholder number**. `$1`, `?`, `:name` and `@name` numbering is unaffected.
+* **Do not use `EMBED` for `IN` clause value lists.** No quotes are added, so `IN (/*EMBED names*/'a')` renders `IN (a)` and the values are treated as identifiers. Use a bind variable — `IN (/*names*/'a')` — which quotes strings and produces placeholders in `generateParameterizedSQL`. For a numeric array both forms happen to render the same SQL with `generateSQL`, but only the bind variable is parameterized.
 
 ---
 #### 💡 Supported Property Paths

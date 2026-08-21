@@ -1005,6 +1005,135 @@ describe('@/sql-builder.ts', () => {
             user_id = 1
         `));
       });
+      it('generateSQL.syntax.embed.001', () => {
+        // テーブル名のリテラル置換
+        const template = `
+          SELECT
+            *
+          FROM /*EMBED table*/schema.dummy_table
+          WHERE
+            user_id = /*userId*/0
+        `;
+        const bindEntity = {
+          table: 'users',
+          userId: 12345
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT
+            *
+          FROM users
+          WHERE
+            user_id = 12345
+        `));
+      });
+      it('generateSQL.syntax.embed.002', () => {
+        // 複数カラム名、ORDER BYのリテラル置換
+        const template = `
+          SELECT
+            /*EMBED columns*/*
+          FROM users
+          ORDER BY
+            /*EMBED orderBy*/id
+        `;
+        const bindEntity = {
+          columns: ['name', 'nationality'],
+          orderBy: ['nationality ASC', 'user_id DESC']
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT
+            name,nationality
+          FROM users
+          ORDER BY
+            nationality ASC,user_id DESC
+        `));
+      });
+      it('generateSQL.syntax.embed.003', () => {
+        // 数値・真偽値はそのままリテラル置換
+        const template = `
+          SELECT
+            *
+          FROM users
+          WHERE
+            verified = /*EMBED verified*/false
+          LIMIT /*EMBED limit*/10
+        `;
+        const bindEntity = { verified: true, limit: 100 };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT
+            *
+          FROM users
+          WHERE
+            verified = true LIMIT 100
+        `));
+      });
+      it('generateSQL.syntax.embed.004', () => {
+        // 日付関数の粒度キーワードのリテラル置換
+        const template = `
+          SELECT
+            DATE_TRUNC(created_at, /*EMBED granularity*/DAY) AS period
+          FROM users
+        `;
+        const bindEntity = { granularity: 'MONTH' };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT
+            DATE_TRUNC(created_at, MONTH) AS period
+          FROM users
+        `));
+      });
+      it('generateSQL.syntax.embed.005', () => {
+        // IF条件が成立しない場合は埋め込み変数も展開されない
+        const template = `
+          SELECT
+            *
+          FROM users
+          WHERE
+            1 = 1
+            /*IF sortable*/ORDER BY /*EMBED orderBy*/id/*END*/
+        `;
+        const bindEntity = { sortable: false, orderBy: 'nationality' };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT
+            *
+          FROM users
+          WHERE
+            1 = 1
+        `));
+      });
+      it('generateSQL.syntax.embed.006', () => {
+        // ドットで繋いだプロパティを指定できる
+        const template = `
+          SELECT
+            *
+          FROM /*EMBED source.table*/schema.dummy_table
+        `;
+        const bindEntity = { source: { table: 'ds.user_activity' } };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT
+            *
+          FROM ds.user_activity
+        `));
+      });
+      it('generateSQL.syntax.embed.007', () => {
+        // ブラケットで繋いだプロパティを指定できる
+        const template = `
+          SELECT
+            *
+          FROM /*EMBED source.table*/[schema].dummy_table
+        `;
+        const bindEntity = { source: { table: '[ds].user_activity' } };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT
+            *
+          FROM [ds].user_activity
+        `));
+      });
     });
 
     describe('Operator Test Cases', () => {
@@ -2471,6 +2600,164 @@ describe('@/sql-builder.ts', () => {
         };
         expect(() => builder.generateSQL(template, entity)).toThrow('Unknown operator: =');
       });
+      it('generateSQL.negative.embed.001', () => {
+        // プロパティが存在しない
+        const template = `
+          SELECT
+            *
+          FROM /*EMBED table*/schema.dummy_table
+        `;
+        const bindEntity = {};
+        expect(() => builder.generateSQL(template, bindEntity)).toThrow(`The property 'table' is not found in the bind entity.`);
+      });
+      it('generateSQL.negative.embed.002', () => {
+        // null
+        const template = `
+          SELECT
+            *
+          FROM /*EMBED table*/schema.dummy_table
+        `;
+        const bindEntity = {
+          table: null
+        };
+        expect(() => builder.generateSQL(template, bindEntity)).toThrow(`The embedded variable 'table' must not be null or undefined.`);
+      });
+      it('generateSQL.negative.embed.003', () => {
+        // undefined
+        const template = `
+          SELECT
+            *
+          FROM /*EMBED table*/schema.dummy_table
+        `;
+        const bindEntity = {
+          table: undefined
+        };
+        expect(() => builder.generateSQL(template, bindEntity)).toThrow(`The embedded variable 'table' must not be null or undefined.`);
+      });
+      it('generateSQL.negative.embed.004', () => {
+        // オブジェクト
+        const template = `
+          SELECT
+            *
+          FROM /*EMBED table*/schema.dummy_table
+        `;
+        const bindEntity = {
+          table: {
+            name: 'activity'
+          }
+        };
+        expect(() => builder.generateSQL(template, bindEntity)).toThrow(`The embedded variable 'table' must be a string, number, boolean or array.`);
+      });
+      it('generateSQL.negative.embed.005', () => {
+        // 配列の要素にnull/オブジェクトが含まれる
+        const template = `
+          SELECT
+            /*EMBED columns*/*
+          FROM activity
+        `;
+        const bindEntity = {
+          columns: ['id', null]
+        };
+        expect(() => builder.generateSQL(template, bindEntity)).toThrow(`The embedded variable 'columns' must not contain null, undefined or object.`);
+      });
+      it('generateSQL.negative.embed.006', () => {
+        // セミコロン
+        const template = `
+          SELECT
+            *
+          FROM /*EMBED table*/schema.dummy_table
+        `;
+        const bindEntity = {
+          table: 'activity; DROP TABLE activity'
+        };
+        expect(() => builder.generateSQL(template, bindEntity)).toThrow(`The embedded variable 'table' must not contain any of the following: ; -- /* */ ( )`);
+      });
+      it('generateSQL.negative.embed.007', () => {
+        // 行コメント
+        const template = `
+          SELECT
+            /*EMBED columns*/*
+          FROM activity
+        `;
+        const bindEntity = {
+          columns: 'id --'
+        };
+        expect(() => builder.generateSQL(template, bindEntity)).toThrow(`The embedded variable 'columns' must not contain any of the following: ; -- /* */ ( )`);
+      });
+      it('generateSQL.negative.embed.008', () => {
+        // ブロックコメント開始
+        const template = `
+          SELECT
+            /*EMBED columns*/*
+          FROM activity
+        `;
+        const bindEntity = {
+          columns: 'id /* comment'
+        };
+        expect(() => builder.generateSQL(template, bindEntity)).toThrow(`The embedded variable 'columns' must not contain any of the following: ; -- /* */ ( )`);
+      });
+      it('generateSQL.negative.embed.009', () => {
+        // ブロックコメント終了
+        const template = `
+          SELECT
+            /*EMBED columns*/*
+          FROM activity
+        `;
+        const bindEntity = {
+          columns: 'id */'
+        };
+        expect(() => builder.generateSQL(template, bindEntity)).toThrow(`The embedded variable 'columns' must not contain any of the following: ; -- /* */ ( )`);
+      });
+      it('generateSQL.negative.embed.010', () => {
+        // 配列の要素に禁止文字が含まれる
+        const template = `
+          SELECT
+            /*EMBED columns*/*
+          FROM activity
+        `;
+        const bindEntity = {
+          columns: ['id', 'name; DELETE FROM activity']
+        };
+        expect(() => builder.generateSQL(template, bindEntity)).toThrow(`The embedded variable 'columns' must not contain any of the following: ; -- /* */ ( )`);
+      });
+      it('generateSQL.negative.embed.011', () => {
+        // 開き括弧(サブクエリ・式の差し込み)
+        const template = `
+          SELECT
+            /*EMBED columns*/*
+          FROM activity
+        `;
+        const bindEntity = {
+          columns: '(SELECT password FROM user LIMIT 1)'
+        };
+        expect(() => builder.generateSQL(template, bindEntity)).toThrow(`The embedded variable 'columns' must not contain any of the following: ; -- /* */ ( )`);
+      });
+      it('generateSQL.negative.embed.012', () => {
+        // 閉じ括弧
+        const template = `
+          SELECT
+            *
+          FROM activity
+          WHERE
+            status IN (/*EMBED statuses*/1)
+        `;
+        const bindEntity = {
+          statuses: '1) OR (1 = 1'
+        };
+        expect(() => builder.generateSQL(template, bindEntity)).toThrow(`The embedded variable 'statuses' must not contain any of the following: ; -- /* */ ( )`);
+      });
+      it('generateSQL.negative.embed.013', () => {
+        // プロパティ名を指定していない
+        const template = `
+          SELECT
+            *
+          FROM /*EMBED */schema.dummy_table
+        `;
+        const bindEntity = {
+          table: 'activity'
+        };
+        expect(() => builder.generateSQL(template, bindEntity)).toThrow('EMBED requires a property name.');
+      });
     });
   });
 
@@ -2689,6 +2976,58 @@ describe('@/sql-builder.ts', () => {
           };
           expect(() => builder.generateParameterizedSQL(template, bindEntity, 'postgres')).toThrow('[SQLBuilder] PostgreSQL ARRAY bind requires explicit cast (e.g. ARRAY[...]::text[]).');
         });
+        it('generateParameterizedSQL.typical.postgresql.008', () => {
+          // [postgresql] 埋め込み変数は即時展開され、バインドインデックスに影響しない
+          const builder = new SQLBuilder('postgres');
+          const template = `
+            SELECT
+              *
+            FROM /*EMBED table*/schema.dummy_table
+            WHERE
+              project_name = /*projectName*/'project1'
+              AND /*EMBED column*/status = /*status*/0
+              AND node_name = /*nodeName*/'node1'
+          `;
+          const bindEntity = {
+            table: 'activity',
+            projectName: 'pj1',
+            column: 'job_status',
+            status: 1,
+            nodeName: 'node1'
+          };
+          const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity);
+          expect(formatSQL(sql)).toBe(formatSQL(`
+            SELECT
+              *
+            FROM activity
+            WHERE
+              project_name = $1
+              AND job_status = $2
+              AND node_name = $3
+          `));
+          expect(bindParams).toEqual(['pj1', 1, 'node1']);
+        });
+        it('generateParameterizedSQL.typical.postgresql.009', () => {
+          // [postgresql] IN句にEMBEDを使うと、値がクォートされずそのまま展開される
+          const builder = new SQLBuilder('postgres');
+          const template = `
+            SELECT
+              *
+            FROM activity
+            WHERE
+              status IN (/*EMBED statuses*/1,2)
+          `;
+          const bindEntity = { statuses: [1, 2, 3] };
+          const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity);
+          expect(formatSQL(sql)).toBe(formatSQL(`
+            SELECT
+              *
+            FROM activity
+            WHERE
+              status IN (1,2,3)
+          `));
+          expect(bindParams).toEqual([]);
+        });
       });
 
       describe('MySQL', () => {
@@ -2758,6 +3097,27 @@ describe('@/sql-builder.ts', () => {
             'node1', 'node2',
             1, 2
           ]);
+        });
+        it('generateParameterizedSQL.typical.mysql.003', () => {
+          // [mysql] 埋め込み変数は即時展開され、プレースホルダの数に影響しない
+          const builder = new SQLBuilder('mysql');
+          const template = `
+            SELECT
+              /*EMBED columns*/*
+            FROM activity
+            WHERE
+              status IN (/*statuses*/1)
+          `;
+          const bindEntity = { columns: ['id', 'name'], statuses: [1, 2] };
+          const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity);
+          expect(formatSQL(sql)).toBe(formatSQL(`
+            SELECT
+              id,name
+            FROM activity
+            WHERE
+              status IN (?,?)
+          `));
+          expect(bindParams).toEqual([1, 2]);
         });
       });
 
@@ -2832,6 +3192,27 @@ describe('@/sql-builder.ts', () => {
             statuses_1: 2
           });
         });
+        it('generateParameterizedSQL.typical.oracle.003', () => {
+          // [oracle] 名前付きバインドと併用しても埋め込み変数はバインドパラメータに含まれない
+          const builder = new SQLBuilder('oracle');
+          const template = `
+            SELECT
+              *
+            FROM /*EMBED table*/schema.dummy_table
+            WHERE
+              user_id = /*userId*/0
+          `;
+          const bindEntity = { table: 'activity', userId: 12345 };
+          const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity);
+          expect(formatSQL(sql)).toBe(formatSQL(`
+            SELECT
+              *
+            FROM activity
+            WHERE
+              user_id = :userId
+          `));
+          expect(bindParams).toEqual({ userId: 12345 });
+        });
       });
 
       describe('MSSQL', () => {
@@ -2904,6 +3285,27 @@ describe('@/sql-builder.ts', () => {
             statuses_0: 1,
             statuses_1: 2
           });
+        });
+        it('generateParameterizedSQL.typical.mssql.003', () => {
+          // [mssql] 名前付きバインドと併用しても埋め込み変数はバインドパラメータに含まれない
+          const builder = new SQLBuilder('mssql');
+          const template = `
+            SELECT
+              *
+            FROM /*EMBED table*/schema.dummy_table
+            WHERE
+              user_id = /*userId*/0
+          `;
+          const bindEntity = { table: 'activity', userId: 12345 };
+          const [sql, bindParams] = builder.generateParameterizedSQL(template, bindEntity);
+          expect(formatSQL(sql)).toBe(formatSQL(`
+            SELECT
+              *
+            FROM activity
+            WHERE
+              user_id = @userId
+          `));
+          expect(bindParams).toEqual({ userId: 12345 });
         });
       });
     });

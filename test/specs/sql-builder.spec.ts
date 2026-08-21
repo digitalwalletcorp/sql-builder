@@ -116,10 +116,10 @@ describe('@/sql-builder.ts', () => {
           SELECT COUNT(*) AS cnt FROM activity
           /*BEGIN*/WHERE
             1 = 1
-            /*IF projectNames.length*/AND project_name IN /*projectNames*/('project1')/*END*/
-            /*IF nodeNames.length*/AND node_name IN /*nodeNames*/('node1')/*END*/
-            /*IF jobNames.length*/AND job_name IN /*jobNames*/('job1')/*END*/
-            /*IF statuses.length*/AND status IN /*statuses*/(1)/*END*/
+            /*IF projectNames.length*/AND project_name IN (/*projectNames*/'project1')/*END*/
+            /*IF nodeNames.length*/AND node_name IN (/*nodeNames*/'node1')/*END*/
+            /*IF jobNames.length*/AND job_name IN (/*jobNames*/'job1')/*END*/
+            /*IF statuses.length*/AND status IN (/*statuses*/1)/*END*/
           /*END*/
         `;
         const bindEntity = {
@@ -147,7 +147,7 @@ describe('@/sql-builder.ts', () => {
         // BEGIN内のIFがすべて不成立で /*END*/ がテンプレート末尾にあっても、BEGINごと消えタグが残らないこと
         const template = `SELECT COUNT(*) AS cnt FROM activity
           /*BEGIN*/WHERE
-            /*IF projectNames.length*/AND project_name IN /*projectNames*/('project1')/*END*//*END*/`;
+            /*IF projectNames.length*/AND project_name IN (/*projectNames*/'project1')/*END*//*END*/`;
         const bindEntity = {
           projectNames: []
         };
@@ -715,7 +715,7 @@ describe('@/sql-builder.ts', () => {
           SELECT * FROM activity
           WHERE
             1 = 1
-            AND name = /*UNKNOWN_TAG*/
+            AND name = /*UNKNOWN_TAG*/'dummy'
         `;
         const bindEntity = {};
         expect(() => {
@@ -813,7 +813,7 @@ describe('@/sql-builder.ts', () => {
           WHERE
             1 = 1
             /*IF status == 10*/
-              /*IF jobNames != null && jobNames.length*/AND job_names IN /*jobNames*/('jobname')/*END*/
+              /*IF jobNames != null && jobNames.length*/AND job_names IN (/*jobNames*/'jobname')/*END*/
             /*END*/
         `;
         const bindEntity = {
@@ -838,7 +838,7 @@ describe('@/sql-builder.ts', () => {
           WHERE
             1 = 1
             /*IF status == 10*/
-              /*IF jobNames != null && jobNames.length*/AND job_names IN /*jobNames*/('jobname')/*END*/
+              /*IF jobNames != null && jobNames.length*/AND job_names IN (/*jobNames*/'jobname')/*END*/
             /*END*/
         `;
         const bindEntity = {
@@ -903,7 +903,7 @@ describe('@/sql-builder.ts', () => {
         `));
       });
       it('generateSQL.syntax.109', () => {
-        // ダミーパラメータを含まない場合(推奨はしない書き方)
+        // ダミーパラメータを含まない場合、バインド変数ではなくSQLのコメントとして扱う。
         const template = `
           SELECT * FROM table
           WHERE
@@ -923,11 +923,11 @@ describe('@/sql-builder.ts', () => {
         expect(formatSQL(sql)).toBe(formatSQL(`
           SELECT * FROM table
           WHERE
-            user_id = 12345
-            AND remarks = 'aaa,bbb,ccc'
+            user_id = /*userId*/
+            AND remarks = /*remarks*/
             AND verified IS TRUE
-            AND status IN (1,2,3)
-            AND '2025-07-05' < verified_at
+            AND status IN (/*statuses*/)
+            AND /*verifiedAt*/ < verified_at
         `));
       });
       it('generateSQL.syntax.110', () => {
@@ -988,7 +988,7 @@ describe('@/sql-builder.ts', () => {
             /*IF !!gendar*/gendar = /*gendar*/'M',/*END*/
             status = 10
           WHERE
-            user_id = /*userId*/
+            user_id = /*userId*/0
         `;
         const bindEntity = {
           name: null,
@@ -1195,10 +1195,10 @@ describe('@/sql-builder.ts', () => {
           SELECT * FROM activity
           /*BEGIN*/WHERE
             1 = 1
-            /*IF projectNames != null && projectNames.length*/AND project_name IN /*projectNames*/('project1')/*END*/
-            /*IF nodeNames != null && nodeNames.length*/AND node_name IN /*nodeNames*/('node1')/*END*/
-            /*IF jobNames != null && jobNames.length*/AND job_name IN /*jobNames*/('job1')/*END*/
-            /*IF statuses != null && statuses.length*/AND status IN /*statuses*/(1)/*END*/
+            /*IF projectNames != null && projectNames.length*/AND project_name IN (/*projectNames*/'project1')/*END*/
+            /*IF nodeNames != null && nodeNames.length*/AND node_name IN (/*nodeNames*/'node1')/*END*/
+            /*IF jobNames != null && jobNames.length*/AND job_name IN (/*jobNames*/'job1')/*END*/
+            /*IF statuses != null && statuses.length*/AND status IN (/*statuses*/1)/*END*/
             /*END*/
           ORDER BY started_at DESC NULLS LAST
           /*IF limit != null*/LIMIT /*limit*/100/*END*/
@@ -1246,7 +1246,7 @@ describe('@/sql-builder.ts', () => {
           SELECT * FROM activity
           WHERE
             1 = 1
-            /*IF 100 <= timeout && timeout <= 200*/AND timeout <= /*timeout*/ /*END*/
+            /*IF 100 <= timeout && timeout <= 200*/AND timeout <= /*timeout*/100 /*END*/
         `;
         const bindEntity = {
           timeout: 150
@@ -1265,7 +1265,7 @@ describe('@/sql-builder.ts', () => {
           SELECT * FROM activity
           WHERE
             1 = 1
-            /*IF 100 <= timeout && timeout <= 200*/AND timeout <= /*timeout*/ /*END*/
+            /*IF 100 <= timeout && timeout <= 200*/AND timeout <= /*timeout*/100 /*END*/
         `;
         const bindEntity = {
           timeout: 250

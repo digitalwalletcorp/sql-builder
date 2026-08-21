@@ -6,6 +6,51 @@ Inspired by Java's **S2Dao its successor Doma**, this TypeScript/JavaScript libr
 
 The core mechanism involves parsing special SQL comments (`/*IF ...*/`, `/*BEGIN...*/`, etc.) in a template and generating a final query based on a provided data object.
 
+### ⚠️ Breaking Change in Dummy Value Behavior (v2 → v3)
+
+**A dummy value after a bind tag is now mandatory. A bind tag written without one is treated as a plain SQL comment.**
+
+This allows standard SQL block comments (e.g., `/* active users only */`) in templates, whereas v2.x raised an error.
+
+**v2.x (a dummy value was optional)**
+```sql
+SELECT * FROM users WHERE user_id = /*userId*/
+```
+
+**v3.x (a dummy value is required)**
+```sql
+SELECT * FROM users WHERE user_id = /*userId*/0
+```
+
+> ⚠️ **Warning before upgrading:** A bind tag missing a dummy value will **NOT** throw an error in v3.x. Instead, it is treated as a plain SQL comment and remains in the generated query, leaving the value unbound (e.g., `WHERE user_id = /*userId*/`). Always ensure all bind tags have dummy values before upgrading. This aligns with the 2-way SQL principle that templates should remain executable SQL on their own.
+
+Block comments now survive as they are written:
+
+```sql
+/**
+ * This SQL is used for retrieving user information.
+ */
+SELECT
+  /* the first 10 users only */
+  *
+FROM users
+WHERE status = /*status*/0
+LIMIT 10
+```
+
+```typescript
+// Output (v3.x)
+// /**
+//  * This SQL is used for retrieving user information.
+//  */
+// SELECT
+//   /* the first 10 users only */
+//   *
+// FROM users
+// WHERE status = 1
+// LIMIT 10
+```
+
 ### ⚠️ Breaking Change in IN Clause Behavior (v1 → v2)
 
 **v2.0.0 introduces a breaking change in how arrays are rendered for `IN` clauses.**
@@ -487,7 +532,8 @@ WHERE
 | ELSE | `/*ELSE*/ ...`	| Included if all preceding `IF` and `ELSEIF` conditions in the block were false. |
 | BEGIN | `/*BEGIN*/ ... /*END*/` | A wrapper block, typically for a `WHERE` clause. The entire block is included only if at least one inner `IF/ELSEIF/ELSE` or `FOR` block is active. This intelligently removes the `WHERE` keyword if no filters apply. |
 | FOR | `/*FOR item:collection*/ ... /*END*/` | Iterates over the `collection` array. For each loop, the current value is available as `item`. Additionally, inside the loop, `_index` (0-based) and `_count` (1-based) are available. If your entity already contains these properties, your values will take priority, meaning `_index` and `_count` properties for `FOR` tag will not work as expected. |
-| Bind Variable | `/*variable*/` | Binds a value from the `entity`. Strings are quoted `'value'`, numbers are rendered as-is `123`. When the value is an array, elements are expanded into a comma-separated list. The template may contain zero or one dummy expression after a bind tag. If present, only a single SQL expression is allowed. Multiple comma-separated dummy values are not supported. |
+| Bind Variable | `/*variable*/dummy` | Binds a value from the `entity`. Strings are quoted `'value'`, numbers are rendered as-is `123`. When the value is an array, elements are expanded into a comma-separated list. **A dummy value is required**: a tag without one is treated as a plain SQL comment. Only a single SQL expression is allowed as the dummy value. |
+| Block Comment | `/* any text */` | A comment that is not a known tag, does not look like a property path (`param`, `obj.param`), or is not followed by a dummy value is left in the generated SQL as-is. |
 | Embedded Variable | `/*EMBED variable*/dummy` | Inserts the value from the `entity` into the SQL **as-is**, without quoting or escaping. Intended for identifiers and clauses that cannot be parameterized. A dummy value is required so that the template remains executable SQL. See [Embedded Variables](#-embedded-variables-embed) for details. |
 | END | `/*END*/` | Marks the end of an `IF`, `BEGIN`, or `FOR` block. |
 

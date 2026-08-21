@@ -108,10 +108,10 @@ interface SharedIndex {
  * SELECT COUNT(*) AS cnt FROM activity
  * \/*BEGIN*\/WHERE
  * 1 = 1
- * \/*IF projectNames.length*\/AND project_name IN \/*projectNames*\/('project1')\/*END*\/
- * \/*IF nodeNames.length*\/AND node_name IN \/*nodeNames*\/('node1')\/*END*\/
- * \/*IF jobNames.length*\/AND job_name IN \/*jobNames*\/('job1')\/*END*\/
- * \/*IF statuses.length*\/AND status IN \/*statuses*\/(1)\/*END*\/
+ * \/*IF projectNames.length*\/AND project_name IN (\/*projectNames*\/'project1')\/*END*\/
+ * \/*IF nodeNames.length*\/AND node_name IN (\/*nodeNames*\/'node1')\/*END*\/
+ * \/*IF jobNames.length*\/AND job_name IN (\/*jobNames*\/'job1')\/*END*\/
+ * \/*IF statuses.length*\/AND status IN (\/*statuses*\/1)\/*END*\/
  * \/*END*\/
  * ```
  *
@@ -159,6 +159,9 @@ export class SQLBuilder {
 
   // 埋め込み変数(EMBED)の値に含まれていたらエラーにする文字列
   private FORBIDDEN_EMBED_SEQUENCES = [';', '--', '/*', '*/', '(', ')'];
+
+  // プロパティパス: `param`、`obj.param`のようにドットで繋いだ識別子
+  private PROPERTY_PATH_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*$/;
 
   private bindType?: BindType;
 
@@ -287,7 +290,7 @@ export class SQLBuilder {
           } as ContainerTagContext;
           break;
         }
-        case matchContent.startsWith('/*IF'): {
+        case /^\/\*IF\s/.test(matchContent): {
           tagContext = {
             ...tagContext,
             type: 'IF',
@@ -299,7 +302,7 @@ export class SQLBuilder {
           tagContext.contents = contentMatcher && contentMatcher[1] || '';
           break;
         }
-        case matchContent.startsWith('/*ELSEIF'): {
+        case /^\/\*ELSEIF\s/.test(matchContent): {
           tagContext = {
             ...tagContext,
             type: 'ELSEIF',
@@ -321,7 +324,7 @@ export class SQLBuilder {
           } as BranchTagContext;
           break;
         }
-        case matchContent.startsWith('/*FOR'): {
+        case /^\/\*FOR\s/.test(matchContent): {
           tagContext = {
             ...tagContext,
             type: 'FOR',
@@ -363,6 +366,19 @@ export class SQLBuilder {
           tagContext.contents = contentMatcher && contentMatcher[1]?.trim() || '';
           // ダミー値の終了位置をendIndexに設定
           const dummyEndIndex = this.getDummyParamEndIndex(template, tagContext);
+          // バインド変数はプロパティパスの形をしていて、かつダミー値が続く。
+          // どちらかを満たさないものはSQLのブロックコメントとして扱い、そのまま書き出す
+          if (!this.PROPERTY_PATH_PATTERN.test(tagContext.contents) || dummyEndIndex === tagContext.endIndex) {
+            tagContext = {
+              type: 'TEXT',
+              match: '',
+              contents: matchContent,
+              startIndex: tagContext.startIndex,
+              endIndex: tagContext.endIndex,
+              parent: null
+            } as TextTagContext;
+            break;
+          }
           tagContext.endIndex = dummyEndIndex;
 
           // PostgreSQL ANY/CAST構文判定

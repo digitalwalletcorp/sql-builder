@@ -541,7 +541,9 @@ const orderBy = SORTABLE[request.sort] ?? SORTABLE.name;   // allow-list
 
 ##### Notes
 
-* **A dummy value is required**, and it must be a single token without spaces (the dummy ends at whitespace, `;`, `(` or `)`). Write `ORDER BY /*EMBED orderBy*/id`, not `ORDER BY /*EMBED orderBy*/id DESC`.
+* **A dummy value is required.** It ends at whitespace, a comma `,`, `;`, `(` or `)`, and is always consumed as a single token.
+  * A comma `,` acts as a delimiter and remains in the generated SQL. For example, `SELECT /*EMBED columns*/id,name FROM users` with `columns: ['user_id', 'age']` renders `SELECT user_id,age,name FROM users`.
+  * Unlike bind variables (`IN (/*ids*/1, 2)`), embedded dummy values cannot contain commas. The comma acts as a separator, ensuring that any subsequent columns or SQL fragments in the template are not accidentally removed.
 * In `generateParameterizedSQL`, an embedded variable is expanded immediately and **does not consume a placeholder number**. `$1`, `?`, `:name` and `@name` numbering is unaffected.
 * **Do not use `EMBED` for `IN` clause value lists.** No quotes are added, so `IN (/*EMBED names*/'a')` renders `IN (a)` and the values are treated as identifiers. Use a bind variable — `IN (/*names*/'a')` — which quotes strings and produces placeholders in `generateParameterizedSQL`. For a numeric array both forms happen to render the same SQL with `generateSQL`, but only the bind variable is parameterized.
 

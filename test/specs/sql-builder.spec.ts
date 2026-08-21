@@ -1059,7 +1059,10 @@ describe('@/sql-builder.ts', () => {
             verified = /*EMBED verified*/false
           LIMIT /*EMBED limit*/10
         `;
-        const bindEntity = { verified: true, limit: 100 };
+        const bindEntity = {
+          verified: true,
+          limit: 100
+        };
         const sql = builder.generateSQL(template, bindEntity);
         expect(formatSQL(sql)).toBe(formatSQL(`
           SELECT
@@ -1076,7 +1079,9 @@ describe('@/sql-builder.ts', () => {
             DATE_TRUNC(created_at, /*EMBED granularity*/DAY) AS period
           FROM users
         `;
-        const bindEntity = { granularity: 'MONTH' };
+        const bindEntity = {
+          granularity: 'MONTH'
+        };
         const sql = builder.generateSQL(template, bindEntity);
         expect(formatSQL(sql)).toBe(formatSQL(`
           SELECT
@@ -1094,7 +1099,10 @@ describe('@/sql-builder.ts', () => {
             1 = 1
             /*IF sortable*/ORDER BY /*EMBED orderBy*/id/*END*/
         `;
-        const bindEntity = { sortable: false, orderBy: 'nationality' };
+        const bindEntity = {
+          sortable: false,
+          orderBy: 'nationality'
+        };
         const sql = builder.generateSQL(template, bindEntity);
         expect(formatSQL(sql)).toBe(formatSQL(`
           SELECT
@@ -1111,7 +1119,11 @@ describe('@/sql-builder.ts', () => {
             *
           FROM /*EMBED source.table*/schema.dummy_table
         `;
-        const bindEntity = { source: { table: 'ds.user_activity' } };
+        const bindEntity = {
+          source: {
+            table: 'ds.user_activity'
+          }
+        };
         const sql = builder.generateSQL(template, bindEntity);
         expect(formatSQL(sql)).toBe(formatSQL(`
           SELECT
@@ -1126,12 +1138,52 @@ describe('@/sql-builder.ts', () => {
             *
           FROM /*EMBED source.table*/[schema].dummy_table
         `;
-        const bindEntity = { source: { table: '[ds].user_activity' } };
+        const bindEntity = {
+          source: {
+            table: '[ds].user_activity'
+          }
+        };
         const sql = builder.generateSQL(template, bindEntity);
         expect(formatSQL(sql)).toBe(formatSQL(`
           SELECT
             *
           FROM [ds].user_activity
+        `));
+      });
+      it('generateSQL.syntax.embed.008', () => {
+        // ダミー値の直後にカンマがある(カンマは次の項目との区切りなのでダミー値に含めない)
+        const template = `
+          SELECT
+            /*EMBED columns*/id,
+            name
+          FROM users
+        `;
+        const bindEntity = {
+          columns: ['user_id', 'age']
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT
+            user_id,age,
+            name
+          FROM users
+        `));
+      });
+      it('generateSQL.syntax.embed.009', () => {
+        // カンマはダミー値に含めないため、後続のカラムは固定カラムとして残る
+        const template = `
+          SELECT
+            /*EMBED columns*/id,name
+          FROM users
+        `;
+        const bindEntity = {
+          columns: ['user_id', 'age']
+        };
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT
+            user_id,age,name
+          FROM users
         `));
       });
     });

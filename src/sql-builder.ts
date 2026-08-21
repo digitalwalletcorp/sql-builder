@@ -155,7 +155,7 @@ export class SQLBuilder {
   private LITERAL_LIST_PATTERN = /^(?:-?[0-9.]+|true|false)(?:\s*,\s*(?:-?[0-9.]+|true|false))*/i;
 
   // その他境界
-  private BOUNDARY_PATTERN = /^[^ \t\n\r;()]+/;
+  private BOUNDARY_PATTERN = /^[^ \t\n\r;,()]+/;
 
   // 埋め込み変数(EMBED)の値に含まれていたらエラーにする文字列
   private FORBIDDEN_EMBED_SEQUENCES = [';', '--', '/*', '*/', '(', ')'];

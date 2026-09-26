@@ -1,11 +1,12 @@
 {
   "name": "@digitalwalletcorp/sql-builder",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "This is a library for building SQL",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
+    "install:dev": "rm -rf lib dest && find node_modules -mindepth 1 -delete && yarn install",
     "version:patch": "npm version patch",
     "version:minor": "npm version minor",
     "version:major": "npm version major",
@@ -44,6 +45,6 @@
     "ts-jest": "^29.4.9",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
-    "typescript": "^6.0.3"
+    "typescript": "6.0.3"
   }
 }

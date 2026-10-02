@@ -37,10 +37,10 @@ type BindType = typeof dbTypes[number];
 
 type BindParameterType<T extends BindType>
   = T extends 'postgres' ? any[]
-  : T extends 'mysql' ? any[]
-  : T extends 'oracle' ? Record<string, any>
-  : T extends 'mssql' ? Record<string, any>
-  : never;
+    : T extends 'mysql' ? any[]
+      : T extends 'oracle' ? Record<string, any>
+        : T extends 'mssql' ? Record<string, any>
+          : never;
 
 // すべてのタグの基底
 interface BaseTagContext {
@@ -495,7 +495,7 @@ export class SQLBuilder {
 
           if (parentTagContext.type === 'ELSEIF' || parentTagContext.type === 'ELSE') {
             // 暫定追加されたELSEIF/ELSEを除去
-            while(parentTagContexts.length && ['ELSEIF', 'ELSE'].includes(parentTagContexts[parentTagContexts.length - 1].type)) {
+            while (parentTagContexts.length && ['ELSEIF', 'ELSE'].includes(parentTagContexts[parentTagContexts.length - 1].type)) {
               parentTagContexts.pop();
             }
             parentTagContext = parentTagContexts[parentTagContexts.length - 1];
@@ -888,9 +888,7 @@ export class SQLBuilder {
       return tagContext.endIndex + match[0].length;
     }
 
-    if (
-      (match = remaining.match(this.BOUNDARY_PATTERN))
-    ) {
+    if (match = remaining.match(this.BOUNDARY_PATTERN)) {
       const commentIndex = match[0].indexOf('/*');
       const length = commentIndex !== -1 ? commentIndex : match[0].length;
       return tagContext.endIndex + length;

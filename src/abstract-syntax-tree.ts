@@ -134,7 +134,7 @@ export class AbstractSyntaxTree {
           while (j < condition.length && condition[j] !== quote) {
             // エスケープ文字の処理 (\' や \\) は必要に応じて追加
             if (condition[j] === '\\' && j + 1 < condition.length) {
-              strValue += condition[j+1];
+              strValue += condition[j + 1];
               j += 2;
             } else {
               strValue += condition[j];
@@ -238,11 +238,11 @@ export class AbstractSyntaxTree {
               output.push(op);
             }
             if (!foundLeftParen) {
-              throw new Error(`[SQLBuilder.AST] Mismatched parentheses: Found closing ')' without a matching '('. Check your IF condition syntax.`);;
+              throw new Error(`[SQLBuilder.AST] Mismatched parentheses: Found closing ')' without a matching '('. Check your IF condition syntax.`);
             }
           }
           break;
-        // default:
+        default:
       }
     }
 
@@ -293,8 +293,8 @@ export class AbstractSyntaxTree {
           const left = stack.pop();
 
           switch (token.value) {
-            case '==': stack.push(left == right); break;
-            case '!=': stack.push(left != right); break;
+            case '==': stack.push(left == right); break; // eslint-disable-line eqeqeq
+            case '!=': stack.push(left != right); break; // eslint-disable-line eqeqeq
             case '===': stack.push(left === right); break;
             case '!==': stack.push(left !== right); break;
             case '<': stack.push(left < right); break;
@@ -306,7 +306,7 @@ export class AbstractSyntaxTree {
             default: throw new Error(`[SQLBuilder.AbstractSyntaxTree] Unknown operator: ${token.value}`);
           }
           break;
-        // default:
+        default:
       }
     }
 

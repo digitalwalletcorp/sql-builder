@@ -320,11 +320,13 @@ ORDER BY
 
 ### 📚 API Reference
 
-##### `new SQLBuilder(bindType?: 'postgres' | 'mysql' | 'oracle' | 'mssql')`
+##### `new SQLBuilder(bindType?: 'postgres' | 'mysql' | 'oracle' | 'mssql' | 'bigquery')`
 
 Creates a new instance of the SQL builder.
 
-The bindType parameter is optional. If provided in the constructor, you do not need to specify it again when calling `generateParameterizedSQL`. This is useful for projects that consistently use a single database type.
+The bindType parameter is optional. If provided in the constructor, you do not need to specify it again when calling `generateSQL` or `generateParameterizedSQL`. This is useful for projects that consistently use a single database type.
+
+`'bigquery'` is accepted by `generateSQL` only, where it selects the string literal escaping rules (see [String literal escaping](#string-literal-escaping)). `generateParameterizedSQL` throws an error for `'bigquery'`.
 
 **Note on `bindType` Mapping:**
 While `bindType` explicitly names PostgreSQL, MySQL, Oracle and SQL Server the generated placeholder syntax is compatible with other SQL databases as follows:
@@ -335,14 +337,30 @@ While `bindType` explicitly names PostgreSQL, MySQL, Oracle and SQL Server the g
 | `mysql`        | `?`, `?`, ...      | **MySQL**, **SQLite** (for unnamed parameters) | `Array<any>`        |
 | `oracle`       | `:name`, `:age`, ... | **Oracle**, **SQLite** (for named parameters) | `Record<string, any>` |
 | `mssql`        | `@name`, `@age`, ... | **SQL Server** (for named parameters) | `Record<string, any>` |
+| `bigquery`     | (not supported)    | **BigQuery** (`generateSQL` only) | - |
 
-##### `generateSQL(template: string, entity: Record<string, any>): string`
+##### `generateSQL(template: string, entity: Record<string, any>, bindType?: 'postgres' | 'mysql' | 'oracle' | 'mssql' | 'bigquery'): string`
 
 Generates a final SQL string by processing the template with the provided data entity.
 
 * `template`: The SQL template string containing S2Dao-style comments.
 * `entity`: A data object whose properties are used for evaluating conditions (`/*IF...*/`) and binding values (`/*variable*/`).
+* `bindType`: Selects the string literal escaping rules for the target database. Defaults to the value given to the constructor.
 * Returns: The generated SQL string.
+
+<a id="string-literal-escaping"></a>
+**String literal escaping**
+
+String values are rendered as single-quoted literals. How the characters inside the literal are escaped depends on `bindType`:
+
+| `bindType` | `'` | `\` | newline | Note |
+| :--- | :--- | :--- | :--- | :--- |
+| `postgres` | `''` | as-is | as-is | `\` is an ordinary character when `standard_conforming_strings = on` (the default) |
+| `mysql` | `''` | `\\` | as-is | |
+| `oracle` | `''` | as-is | as-is | |
+| `mssql` | `''` | as-is | as-is | |
+| `bigquery` | `\'` | `\\` | `\n`, `\r` (escape sequences) | `''` is a syntax error and a raw newline is not allowed inside the literal |
+| not specified | `''` | `\\` | as-is | |
 
 ⚠️ **Limitations**
 
@@ -356,14 +374,14 @@ Examples of unsupported constructs include (but are not limited to):
 
 If you need to use database-specific features, use `generateParameterizedSQL` with an explicit `bindType`.
 
-##### `generateParameterizedSQL(template: string, entity: Record<string, any>, bindType?: 'postgres' | 'mysql' | 'oracle' | 'mssql'): [string, Array<any> | Record<string, any>]`
+##### `generateParameterizedSQL(template: string, entity: Record<string, any>, bindType?: 'postgres' | 'mysql' | 'oracle' | 'mssql' | 'bigquery'): [string, Array<any> | Record<string, any>]`
 
 Generates a SQL string with placeholders for prepared statements and returns bind parameters.
 This method prevents SQL injection for value bindings by using parameterized queries.
 
 * `template`: The SQL template string containing S2Dao-style comments.
 * `entity`: A data object whose properties are used for evaluating conditions (`/*IF...*/`) and binding values.
-* `bindType`: Specifies the database type ('postgres', 'mysql', or 'oracle') to determine the correct placeholder syntax (`$1`, `?`, or `:name`).
+* `bindType`: Specifies the database type ('postgres', 'mysql', 'oracle' or 'mssql') to determine the correct placeholder syntax (`$1`, `?`, `:name` or `@name`). `'bigquery'` is not supported by this method and throws an error.
 
 * Returns: A tuple `[sql, bindParams]`.
 * `sql`: The generated SQL query with appropriate placeholders.

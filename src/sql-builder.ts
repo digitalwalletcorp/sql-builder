@@ -21,12 +21,16 @@ type ExtractValueType<T extends 'string' | 'array' | 'object'>
  * ・? (mysql) SQLite, SQL Serverもこれで代替可能
  * ・:name (oracle) SQLiteもこれで代替可能
  * ・`@name` (mssql)
+ *
+ * bigquery は generateSQL の文字列リテラルのエスケープにだけ使える。generateParameterizedSQL ではエラーになる
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const dbTypes = [
   'postgres',
   'mysql',
   'oracle',
-  'mssql'
+  'mssql',
+  'bigquery'
 ] as const;
 
 type BindType = typeof dbTypes[number];
@@ -36,7 +40,7 @@ type BindParameterType<T extends BindType>
   : T extends 'mysql' ? any[]
   : T extends 'oracle' ? Record<string, any>
   : T extends 'mssql' ? Record<string, any>
-  : undefined;
+  : never;
 
 // すべてのタグの基底
 interface BaseTagContext {
@@ -174,9 +178,10 @@ export class SQLBuilder {
    *
    * @param {string} template
    * @param {Record<string, any>} entity
+   * @param {BindType} [bindType] 文字列リテラルのエスケープに使うDBの種類。省略時はコンストラクタの指定を使う
    * @returns {string}
    */
-  public generateSQL(template: string, entity: Record<string, any>): string {
+  public generateSQL(template: string, entity: Record<string, any>, bindType?: BindType): string {
     /**
      * 「\/* *\/」で囲まれたすべての箇所を抽出
      */
@@ -187,7 +192,7 @@ export class SQLBuilder {
 
     const tagContexts = this.createTagContexts(template);
     const pos: SharedIndex = { index: 0 };
-    const result = this.parse(pos, template, entity, tagContexts);
+    const result = this.parse(pos, template, entity, tagContexts, { bindType: bindType ?? this.bindType });
     return result;
   }
 
@@ -202,7 +207,7 @@ export class SQLBuilder {
    */
   public generateParameterizedSQL<T extends BindType>(template: string, entity: Record<string, any>, bindType?: T): [string, BindParameterType<T>] {
 
-    const bt = bindType || this.bindType;
+    const bt = bindType ?? this.bindType;
 
     if (!bt) {
       throw new Error('[SQLBuilder] The bindType parameter is mandatory if bindType is not provided in the constructor.');
@@ -218,6 +223,8 @@ export class SQLBuilder {
       case 'mssql':
         bindParams = {} as BindParameterType<T>;
         break;
+      case 'bigquery':
+        throw new Error('[SQLBuilder] BigQuery is not supported in generateParameterizedSQL. Use generateSQL instead.');
       default:
         throw new Error(`[SQLBuilder] Unsupported bind type: ${bt}`);
     }
@@ -234,8 +241,10 @@ export class SQLBuilder {
     const pos: SharedIndex = { index: 0 };
     const result = this.parse(pos, template, entity, tagContexts, {
       bindType: bt,
-      bindIndex: 1,
-      bindParams: bindParams
+      bind: {
+        bindIndex: 1,
+        bindParams: bindParams
+      }
     });
     return [result, bindParams];
   }
@@ -515,15 +524,18 @@ export class SQLBuilder {
    * @param {Record<string, any>} entity
    * @param {(TagContext | ParentTagContext)[]} tagContexts
    * @param {*} [options]
-   *   ├ bindType BindType
-   *   ├ bindIndex number
-   *   ├ bindParams BindParameterType<T>
+   *   ├ bindType BindType generateSQL で文字列リテラルをエスケープするときのDBの種類
+   *   ├ bind generateParameterizedSQL のときだけ指定する
+   *   │  ├ bindIndex number
+   *   │  └ bindParams BindParameterType<T>
    * @returns {string}
    */
   private parse<T extends BindType>(pos: SharedIndex, template: string, entity: Record<string, any>, tagContexts: (TagContext | ParentTagContext)[], options?: {
-    bindType: T,
-    bindIndex: number,
-    bindParams: BindParameterType<T>
+    bindType?: BindType;
+    bind?: {
+      bindIndex: number;
+      bindParams: BindParameterType<T>;
+    };
   }): string {
     let result = '';
     for (const tagContext of tagContexts) {
@@ -685,91 +697,95 @@ export class SQLBuilder {
             throw new Error(`[SQLBuilder] The property '${tagContext.contents}' is not found in the bind entity. (Template index: ${tagContext.startIndex})`);
           }
           const value = propertyResult.value === undefined ? null : propertyResult.value;
-          switch (options?.bindType) {
-            case 'postgres': {
-              // PostgreSQL形式の場合、$Nでバインドパラメータを展開
-              if (tagContext.isPgArray) {
-                if (!tagContext.pgArrayCast) {
-                  throw new Error(
-                    `[SQLBuilder] PostgreSQL ARRAY bind requires explicit cast (e.g. ARRAY[...]::text[]). ` +
-                    `Property: ${tagContext.contents}, index: ${tagContext.startIndex}`
-                  );
+          const bind = options?.bind;
+          if (bind) {
+            switch (options?.bindType) {
+              case 'postgres': {
+                // PostgreSQL形式の場合、$Nでバインドパラメータを展開
+                if (tagContext.isPgArray) {
+                  if (!tagContext.pgArrayCast) {
+                    throw new Error(
+                      `[SQLBuilder] PostgreSQL ARRAY bind requires explicit cast (e.g. ARRAY[...]::text[]). ` +
+                      `Property: ${tagContext.contents}, index: ${tagContext.startIndex}`
+                    );
+                  }
+                  (bind.bindParams as any[]).push(value);
+                  const cast = tagContext.pgArrayCast ?? ''; // ::text[] などのCAST部分がついている場合は書き戻す
+                  result += `$${bind.bindIndex++}${cast}`;
+                } else if (Array.isArray(value)) {
+                  // IN句の場合
+                  const placeholders: string[] = [];
+                  for (const item of value) {
+                    placeholders.push(`$${bind.bindIndex++}`);
+                    (bind.bindParams as any[]).push(item);
+                  }
+                  result += placeholders.join(','); // IN ($1,$2,$3)
+                } else {
+                  (bind.bindParams as any[]).push(value);
+                  result += `$${bind.bindIndex++}`;
                 }
-                (options.bindParams as any[]).push(value);
-                const cast = tagContext.pgArrayCast ?? ''; // ::text[] などのCAST部分がついている場合は書き戻す
-                result += `$${options.bindIndex++}${cast}`;
-              } else if (Array.isArray(value)) {
-                // IN句の場合
-                const placeholders: string[] = [];
-                for (const item of value) {
-                  placeholders.push(`$${options.bindIndex++}`);
-                  (options.bindParams as any[]).push(item);
+                break;
+              }
+              case 'mysql': {
+                // MySQL形式の場合、?でバインドパラメータを展開
+                if (Array.isArray(value)) {
+                  const placeholders: string[] = [];
+                  for (const item of value) {
+                    placeholders.push('?');
+                    (bind.bindParams as any[]).push(item);
+                  }
+                  result += placeholders.join(','); // IN (?,?,?)
+                } else {
+                  (bind.bindParams as any[]).push(value);
+                  result += '?';
                 }
-                result += placeholders.join(','); // IN ($1,$2,$3)
-              } else {
-                (options.bindParams as any[]).push(value);
-                result += `$${options.bindIndex++}`;
+                break;
               }
-              break;
-            }
-            case 'mysql': {
-              // MySQL形式の場合、?でバインドパラメータを展開
-              if (Array.isArray(value)) {
-                const placeholders: string[] = [];
-                for (const item of value) {
-                  placeholders.push('?');
-                  (options.bindParams as any[]).push(item);
+              case 'oracle': {
+                // Oracle形式の場合、名前付きバインドでバインドパラメータを展開
+                if (Array.isArray(value)) {
+                  const placeholders: string[] = [];
+                  for (let i = 0; i < value.length; i++) {
+                    // 名前付きバインドで配列の場合は名前が重複する可能性があるので枝番を付与
+                    const paramName = `${tagContext.contents}_${i}`; // :projectNames_0, :projectNames_1
+                    placeholders.push(`:${paramName}`);
+                    (bind.bindParams as Record<string, any>)[paramName] = value[i];
+                  }
+                  result += placeholders.join(','); // IN (:p_0,:p_1,:p3)
+                } else {
+                  (bind.bindParams as Record<string, any>)[tagContext.contents] = value;
+                  result += `:${tagContext.contents}`;
                 }
-                result += placeholders.join(','); // IN (?,?,?)
-              } else {
-                (options.bindParams as any[]).push(value);
-                result += '?';
+                break;
               }
-              break;
-            }
-            case 'oracle': {
-              // Oracle形式の場合、名前付きバインドでバインドパラメータを展開
-              if (Array.isArray(value)) {
-                const placeholders: string[] = [];
-                for (let i = 0; i < value.length; i++) {
-                  // 名前付きバインドで配列の場合は名前が重複する可能性があるので枝番を付与
-                  const paramName = `${tagContext.contents}_${i}`; // :projectNames_0, :projectNames_1
-                  placeholders.push(`:${paramName}`);
-                  (options.bindParams as Record<string, any>)[paramName] = value[i];
+              case 'mssql': {
+                // SQL Server形式の場合、名前付きバインドでバインドパラメータを展開
+                if (Array.isArray(value)) {
+                  const placeholders: string[] = [];
+                  for (let i = 0; i < value.length; i++) {
+                    // 名前付きバインドで配列の場合は名前が重複する可能性があるので枝番を付与
+                    const paramName = `${tagContext.contents}_${i}`; // @projectNames_0, @projectNames_1
+                    placeholders.push(`@${paramName}`);
+                    (bind.bindParams as Record<string, any>)[paramName] = value[i];
+                  }
+                  result += placeholders.join(','); // IN (:p_0,:p_1,:p3)
+                } else {
+                  (bind.bindParams as Record<string, any>)[tagContext.contents] = value;
+                  result += `@${tagContext.contents}`;
                 }
-                result += placeholders.join(','); // IN (:p_0,:p_1,:p3)
-              } else {
-                (options.bindParams as Record<string, any>)[tagContext.contents] = value;
-                result += `:${tagContext.contents}`;
+                break;
               }
-              break;
+              default:
+                throw new Error(`[SQLBuilder] Unsupported bind type: ${options?.bindType}`);
             }
-            case 'mssql': {
-              // SQL Server形式の場合、名前付きバインドでバインドパラメータを展開
-              if (Array.isArray(value)) {
-                const placeholders: string[] = [];
-                for (let i = 0; i < value.length; i++) {
-                  // 名前付きバインドで配列の場合は名前が重複する可能性があるので枝番を付与
-                  const paramName = `${tagContext.contents}_${i}`; // @projectNames_0, @projectNames_1
-                  placeholders.push(`@${paramName}`);
-                  (options.bindParams as Record<string, any>)[paramName] = value[i];
-                }
-                result += placeholders.join(','); // IN (:p_0,:p_1,:p3)
-              } else {
-                (options.bindParams as Record<string, any>)[tagContext.contents] = value;
-                result += `@${tagContext.contents}`;
-              }
-              break;
+          } else {
+            // generateSQLの場合
+            if (tagContext.isPgArray) {
+              // PostgreSQLのANY/CAST構文が検出された場合
+              throw new Error(`[SQLBuilder] PostgreSQL array bind (::type[]) is not supported in generateSQL. Use generateParameterizedSQL instead. (Property: ${tagContext.contents}, index: ${tagContext.startIndex})`);
             }
-            default: {
-              // generateSQLの場合
-              if (tagContext.isPgArray) {
-                // PostgreSQLのANY/CAST構文が検出された場合
-                throw new Error(`[SQLBuilder] PostgreSQL array bind (::type[]) is not supported in generateSQL. Use generateParameterizedSQL instead. (Property: ${tagContext.contents}, index: ${tagContext.startIndex})`);
-              }
-              const escapedValue = this.extractValue(tagContext.contents, entity);
-              result += escapedValue ?? '';
-            }
+            const escapedValue = this.extractValue(tagContext.contents, entity, { bindType: options?.bindType });
+            result += escapedValue ?? '';
           }
           break;
         }
@@ -917,11 +933,13 @@ export class SQLBuilder {
    * @param {string} property `obj.param1.param2`などのドットで繋いだプロパティ
    * @param {Record<string, any>} entity
    * @param {*} [options]
+   *   ├ bindType BindType 文字列リテラルのエスケープに使うDBの種類
    *   ├ responseType 'string' | 'array' | 'object'
    * @returns {string}
    */
   private extractValue<T extends 'string' | 'array' | 'object' = 'string'>(property: string, entity: Record<string, any>, options?: {
-    responseType?: T
+    bindType?: BindType;
+    responseType?: T;
   }): ExtractValueType<T> {
     const propertyResult = common.getPropertyResult(entity, property);
     if (!propertyResult.exists) {
@@ -942,7 +960,7 @@ export class SQLBuilder {
           result = value.map(v => {
             switch (typeof v) {
               case 'string':
-                return `'${this.escape(v)}'`;
+                return `'${this.escape(v, options?.bindType)}'`;
               case 'boolean':
                 return v ? 'TRUE' : 'FALSE';
               default:
@@ -952,7 +970,7 @@ export class SQLBuilder {
         } else {
           switch (typeof value) {
             case 'string':
-              result = `'${this.escape(value)}'`;
+              result = `'${this.escape(value, options?.bindType)}'`;
               break;
             case 'boolean':
               result = value ? 'TRUE' : 'FALSE';
@@ -1011,16 +1029,32 @@ export class SQLBuilder {
 
   /**
    * SQLインジェクション対策
-   * * シングルクォートのエスケープ
-   * * バックスラッシュのエスケープ
+   *
+   * DBの種類ごとの規則
+   * * postgres・oracle・mssql: シングルクォートは '' にする。バックスラッシュはエスケープ文字ではないのでそのまま
+   * * mysql・未指定: シングルクォートは '' 、バックスラッシュは \\ にする
+   * * bigquery: シングルクォートは \' 、バックスラッシュは \\ にする。リテラル内に生の改行を置けないため、改行は \n と \r の表記にする
    *
    * @param {string} str
+   * @param {BindType} [bindType]
    * @returns {string}
    */
-  private escape(str: string): string {
-    let escapedString = str;
-    escapedString = escapedString.replace(/'/g, '\'\'');
-    escapedString = escapedString.replace(/\\/g, '\\\\');
-    return escapedString;
+  private escape(str: string, bindType?: BindType): string {
+    switch (bindType) {
+      case 'postgres':
+      case 'oracle':
+      case 'mssql':
+        return str.replace(/'/g, `''`);
+      case 'bigquery':
+        return str
+          .replace(/\\/g, '\\\\')
+          .replace(/'/g, `\\'`)
+          .replace(/\n/g, '\\n')
+          .replace(/\r/g, '\\r');
+      default:
+        return str
+          .replace(/'/g, `''`)
+          .replace(/\\/g, '\\\\');
+    }
   }
 }

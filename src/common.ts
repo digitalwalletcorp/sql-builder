@@ -1,7 +1,7 @@
 type PropertyResult = {
   exists: boolean;
   value: any;
-}
+};
 
 /**
  * entityで指定したオブジェクトからドットで連結されたプロパティキーに該当する値を取得する

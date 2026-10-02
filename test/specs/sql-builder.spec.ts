@@ -2509,6 +2509,95 @@ describe('@/sql-builder.ts', () => {
       });
     });
 
+    describe('Escape by bindType Test Cases', () => {
+      const template = `
+        SELECT
+          user_id
+        FROM user
+        WHERE
+          data_key = /*param*/'Name'
+      `;
+      const bindEntity = {
+        param: 'a\'b\\c\nd\re'
+      };
+      it('generateSQL.escape.001', () => {
+        // [bigquery] シングルクォートは \' 、バックスラッシュは \\ 、改行は \n \r の表記にする
+        const builder = new SQLBuilder('bigquery');
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(sql).toBe(`
+        SELECT
+          user_id
+        FROM user
+        WHERE
+          data_key = 'a\\'b\\\\c\\nd\\re'
+      `);
+      });
+      it('generateSQL.escape.002', () => {
+        // generateSQLの第3引数はコンストラクタの指定より優先する
+        const builder = new SQLBuilder('mysql');
+        const sql = builder.generateSQL(template, bindEntity, 'bigquery');
+        expect(sql).toBe(`
+        SELECT
+          user_id
+        FROM user
+        WHERE
+          data_key = 'a\\'b\\\\c\\nd\\re'
+      `);
+      });
+      it.each(['postgres', 'oracle', 'mssql'] as const)('generateSQL.escape.003 (%s)', (bindType) => {
+        // [postgres/oracle/mssql] シングルクォートは '' にする。バックスラッシュと改行はそのまま
+        const builder = new SQLBuilder(bindType);
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(sql).toBe(`
+        SELECT
+          user_id
+        FROM user
+        WHERE
+          data_key = 'a\'\'b\\c\nd\re'
+      `);
+      });
+      it('generateSQL.escape.004', () => {
+        // [mysql] シングルクォートは '' 、バックスラッシュは \\ にする。改行はそのまま
+        const builder = new SQLBuilder('mysql');
+        const sql = builder.generateSQL(template, bindEntity);
+        expect(sql).toBe(`
+        SELECT
+          user_id
+        FROM user
+        WHERE
+          data_key = 'a\'\'b\\\\c\nd\re'
+      `);
+      });
+      it('generateSQL.escape.005', () => {
+        // bindType未指定はmysqlと同じ
+        const builder = new SQLBuilder();
+        expect(builder.generateSQL(template, bindEntity)).toBe(new SQLBuilder('mysql').generateSQL(template, bindEntity));
+      });
+      it('generateSQL.escape.006', () => {
+        // [bigquery] 配列の各要素にも同じ規則を適用する
+        const builder = new SQLBuilder('bigquery');
+        const sql = builder.generateSQL(`
+          SELECT
+            user_id
+          FROM user
+          WHERE
+            data_key IN (/*params*/'Name')
+        `, {
+          params: [
+            'a\'b',
+            'c\\d'
+          ]
+        });
+        expect(formatSQL(sql)).toBe(formatSQL(`
+          SELECT
+            user_id
+          FROM user
+          WHERE
+            data_key IN ('a\\'b','c\\\\d')
+        `));
+      });
+    });
+
     describe('Special SQL Syntax Test Cases', () => {
       it('generateSQL.special-sql-syntax.001', () => {
         // INTERVALを使ったクエリ_1
@@ -3375,6 +3464,32 @@ describe('@/sql-builder.ts', () => {
           userId: 12345
         };
         expect(() => builder.generateParameterizedSQL(template, bindEntity)).toThrow('The bindType parameter is mandatory if bindType is not provided in the constructor.');
+      });
+      it('generateParameterizedSQL.negative.002', () => {
+        // コンストラクターにbigqueryを指定した場合
+        const builder = new SQLBuilder('bigquery');
+        const template = `
+          SELECT * FROM table
+          WHERE
+            user_id = /*userId*/0
+        `;
+        const bindEntity = {
+          userId: 12345
+        };
+        expect(() => builder.generateParameterizedSQL(template, bindEntity)).toThrow('BigQuery is not supported in generateParameterizedSQL.');
+      });
+      it('generateParameterizedSQL.negative.003', () => {
+        // SQL生成時の引数にbigqueryを指定した場合
+        const builder = new SQLBuilder();
+        const template = `
+          SELECT * FROM table
+          WHERE
+            user_id = /*userId*/0
+        `;
+        const bindEntity = {
+          userId: 12345
+        };
+        expect(() => builder.generateParameterizedSQL(template, bindEntity, 'bigquery')).toThrow('BigQuery is not supported in generateParameterizedSQL.');
       });
     });
   });

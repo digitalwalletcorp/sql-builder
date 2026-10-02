@@ -1,11 +1,14 @@
 {
   "name": "@digitalwalletcorp/sql-builder",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "description": "This is a library for building SQL",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
+    "lint": "eslint .",
+    "lint:fix": "eslint --fix .",
+    "yarn:dedupe": "npx yarn-deduplicate --strategy highest yarn.lock",
     "install:dev": "rm -rf lib dest && find node_modules -mindepth 1 -delete && yarn install",
     "version:patch": "npm version patch",
     "version:minor": "npm version minor",
@@ -40,11 +43,21 @@
     "src/**/*"
   ],
   "devDependencies": {
-    "@types/jest": "^30.0.0",
-    "jest": "^30.3.0",
-    "ts-jest": "^29.4.9",
-    "ts-node": "^10.9.2",
-    "tsconfig-paths": "^4.2.0",
-    "typescript": "6.0.3"
+    "@stylistic/eslint-plugin": "5.10.0",
+    "@types/jest": "30.0.0",
+    "eslint": "10.11.0",
+    "globals": "17.13.0",
+    "jest": "30.5.2",
+    "ts-jest": "29.4.14",
+    "ts-node": "10.9.2",
+    "tsconfig-paths": "4.2.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.0"
+  },
+  "resolutions": {
+    "eslint": "10.11.0",
+    "typescript-eslint": "8.71.0",
+    "@stylistic/eslint-plugin": "5.10.0",
+    "globals": "17.13.0"
   }
 }
